@@ -3,7 +3,7 @@ import json
 import httpx
 
 async def test_feishu_pipeline():
-    url = "http://127.0.0.1:8000/tts"
+    url = "http://127.0.0.1:5200/tts"
     headers = {
         "Authorization": "Bearer test-token-123",
         "Content-Type": "application/json"
