@@ -22,6 +22,9 @@ class TTSRequest(BaseModel):
     text: str = Field(min_length=1, max_length=5000)
     voice_prompt: str | None = Field(default=None, max_length=1000)
     format: str = Field(default="wav")
+    channel: str | None = Field(default=None, max_length=64)
+    audio_as_voice: bool | None = Field(default=None)
+    ptt: bool | None = Field(default=None)
 
 
 def media_type_for(fmt: str) -> str:
@@ -58,7 +61,27 @@ async def tts(
 ) -> Response:
     validate_bearer_token(authorization, SETTINGS.internal_tts_token)
 
+    channel = (body.channel or "unknown").lower()
     output_format = body.format.lower()
+    if channel == "telegram" and body.format == "wav":
+        logger.info(
+            "Overriding default wav format to ogg for Telegram compatibility",
+            extra={"channel": channel, "requested_format": body.format, "effective_format": "ogg"},
+        )
+        output_format = "ogg"
+
+    logger.info(
+        "TTS request received",
+        extra={
+            "channel": channel,
+            "tts_path": "qwen_bridge",
+            "requested_format": body.format,
+            "effective_format": output_format,
+            "audio_as_voice": body.audio_as_voice,
+            "ptt": body.ptt,
+        },
+    )
+
     if output_format not in SUPPORTED_FORMATS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -82,7 +105,20 @@ async def tts(
             channels=1,
             output_format=output_format,
         )
-        return Response(content=encoded_audio, media_type=media_type_for(output_format))
+        media_type = media_type_for(output_format)
+        output_size = len(encoded_audio)
+        logger.info(
+            "TTS response ready",
+            extra={
+                "channel": channel,
+                "tts_path": "qwen_bridge",
+                "content_type": media_type,
+                "output_bytes": output_size,
+                "audio_as_voice": body.audio_as_voice,
+                "ptt": body.ptt,
+            },
+        )
+        return Response(content=encoded_audio, media_type=media_type)
     except TimeoutError as exc:
         logger.exception("TTS timeout")
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc)) from exc
