@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from .auth import auth_dependency, validate_bearer_token
 from .audio_utils import SUPPORTED_FORMATS, pcm_to_encoded
+from .channel_routing import choose_bridge_format, resolve_session_voice
 from .config import Settings, load_settings
 from .qwen_client import QwenRealtimeTTSClient, QwenSynthesisConfig
 
@@ -64,15 +65,7 @@ async def tts(
     validate_bearer_token(authorization, SETTINGS.internal_tts_token)
 
     channel = (body.channel or "unknown").lower()
-    requested_format = body.format.lower()
-    effective_format = requested_format
-
-    if channel == "telegram" and requested_format == "wav":
-        logger.info(
-            "Overriding default wav format to ogg for Telegram compatibility",
-            extra={"channel": channel, "requested_format": requested_format, "effective_format": "ogg"},
-        )
-        effective_format = "ogg"
+    effective_format = choose_bridge_format(channel, body.format)
 
     if effective_format not in SUPPORTED_FORMATS:
         raise HTTPException(
@@ -80,16 +73,25 @@ async def tts(
             detail=f"format must be one of {sorted(SUPPORTED_FORMATS)}",
         )
 
+    # Resolve voice profile (using channel as a simple session key for now)
+    voice_info = resolve_session_voice(
+        session_id=channel,
+        text=body.text,
+        tts_engine=body.tts_engine,
+    )
+    # Allow manual override if provided in request
+    final_voice = body.voice_profile or voice_info["tts_voice_id"]
+
     logger.info(
         "TTS request received",
         extra={
             "channel": channel,
-            "voice_profile": body.voice_profile,
+            "voice_profile": body.voice_profile or voice_info["voice_profile"],
             "tts_engine": body.tts_engine,
             "tts_path": "qwen_bridge",
             "bridge_url": SETTINGS.qwen_ws_base,
             "bridge_auth_mode": "bearer",
-            "requested_format": requested_format,
+            "requested_format": body.format,
             "effective_format": effective_format,
             "voice_note_flag": bool(body.audio_as_voice) or bool(body.ptt),
             "voice_flags": {"audio_as_voice": body.audio_as_voice, "ptt": body.ptt},
@@ -100,7 +102,7 @@ async def tts(
         ws_base=SETTINGS.qwen_ws_base,
         model=SETTINGS.tts_model,
         api_key=SETTINGS.dashscope_api_key,
-        voice=SETTINGS.tts_voice,
+        voice=final_voice,
     )
 
     try:
@@ -120,11 +122,11 @@ async def tts(
             "TTS response ready",
             extra={
                 "channel": channel,
-                "voice_profile": body.voice_profile,
+                "voice_profile": body.voice_profile or voice_info["voice_profile"],
                 "tts_engine": body.tts_engine,
                 "tts_path": "qwen_bridge",
                 "response_content_type": media_type,
-                "requested_format": requested_format,
+                "requested_format": body.format,
                 "effective_format": effective_format,
                 "audio_bytes": output_size,
                 "voice_note_flag": bool(body.audio_as_voice) or bool(body.ptt),
