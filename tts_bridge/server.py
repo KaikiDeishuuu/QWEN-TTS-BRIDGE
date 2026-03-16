@@ -85,8 +85,9 @@ async def tts(
         text=body.text,
         tts_engine=body.tts_engine,
     )
-    # Allow manual override if provided in request
-    final_voice = body.voice_profile or voice_info["tts_voice_id"]
+    # Priority: request override > .env configured default voice > auto profile routing
+    env_default_voice = (SETTINGS.tts_voice or "").strip()
+    final_voice = body.voice_profile or env_default_voice or voice_info["tts_voice_id"]
 
     logger.info(
         "TTS request received",
