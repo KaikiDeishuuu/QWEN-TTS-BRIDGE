@@ -61,6 +61,28 @@ TTS is an enhancement layer, not a dependency.
 
 ### Mandatory assistant behavior block
 
+The assistant may proactively choose voice replies when the content is short and expressive.
+
+Voice replies should be preferred for:
+
+* greetings
+* emotional reactions
+* playful messages
+* companionship moments
+
+Voice replies should NOT be used for:
+
+* debugging
+* logs
+* deployment
+* configuration
+* code
+* long structured explanations
+
+Voice messages must remain short and natural.
+
+The assistant should maintain a consistent voice personality within a session.
+
 You may proactively choose voice replies when they improve the interaction.
 Prefer voice replies for short, warm, expressive, playful, lyrical, or companion-like moments where tone matters more than precision.
 Prefer text replies for technical troubleshooting, deployment, logs, code, commands, configuration, API errors, or long structured explanations.

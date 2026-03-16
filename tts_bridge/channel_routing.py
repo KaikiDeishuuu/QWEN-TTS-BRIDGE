@@ -7,25 +7,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from .voice_personality import (
+    choose_profile_for_text,
+    extract_voice_override,
+    looks_technical,
+    session_voice_cache,
+    voice_id_for_engine,
+)
+
 logger = logging.getLogger(__name__)
 
 TTSMode = Literal["off", "always", "inbound", "tagged"]
 Channel = Literal["telegram", "feishu", "other"]
-
-TECHNICAL_PATTERNS = (
-    "```",
-    "traceback",
-    "exception",
-    "error:",
-    "sudo ",
-    "kubectl ",
-    "pip install",
-    "curl ",
-    "http://",
-    "https://",
-    "{",
-    "}",
-)
 
 EXPRESSIVE_PATTERNS = (
     "❤️",
@@ -42,6 +35,9 @@ EXPRESSIVE_PATTERNS = (
     "you got this",
     "love",
     "lyric",
+    "hello",
+    "hi",
+    "hey",
 )
 
 
@@ -63,19 +59,16 @@ def _count_matches(text: str, patterns: tuple[str, ...]) -> int:
     return sum(1 for p in patterns if p in low)
 
 
-def _is_technical_or_structured(text: str) -> bool:
-    return _count_matches(text, TECHNICAL_PATTERNS) > 0
-
-
 def _is_clearly_expressive(text: str, min_hits: int) -> bool:
     return _count_matches(text, EXPRESSIVE_PATTERNS) >= min_hits
 
 
-def parse_tts_overrides(text: str) -> dict[str, bool]:
+def parse_tts_overrides(text: str) -> dict[str, bool | str | None]:
     low = text.lower()
     return {
         "tts_override": "[[tts:" in low,
         "audio_as_voice": "[[audio_as_voice]]" in low,
+        "voice_profile_override": extract_voice_override(text),
     }
 
 
@@ -97,7 +90,7 @@ def should_use_voice(
     if not is_short_enough:
         return False, "too_long"
 
-    if _is_technical_or_structured(text):
+    if looks_technical(text):
         return False, "technical_or_structured"
 
     expressive = _is_clearly_expressive(text, cfg.min_expressive_hits)
@@ -105,13 +98,44 @@ def should_use_voice(
     if cfg.mode == "always":
         return True, "mode_always"
     if cfg.mode == "inbound":
-        return (inbound_voice_hint and expressive), "inbound_voice_hint" if (inbound_voice_hint and expressive) else "not_inbound_or_not_expressive"
+        ok = inbound_voice_hint and expressive
+        return ok, "inbound_voice_hint" if ok else "not_inbound_or_not_expressive"
 
-    # tagged default: conservative proactive mode for short + expressive output
     if cfg.mode == "tagged":
-        return (expressive and channel in {"telegram", "feishu"}), "expressive_short_proactive" if expressive else "not_expressive"
+        ok = expressive and channel in {"telegram", "feishu"}
+        return ok, "expressive_short_proactive" if ok else "not_expressive"
 
     return False, "unsupported_mode"
+
+
+def resolve_session_voice(
+    session_id: str,
+    text: str,
+    *,
+    tts_engine: str = "qwen",
+) -> dict[str, str]:
+    overrides = parse_tts_overrides(text)
+    override_profile = overrides.get("voice_profile_override")
+
+    current = session_voice_cache.get_profile_name(session_id)
+    if override_profile:
+        selected = str(override_profile)
+        session_voice_cache.set_profile_name(session_id, selected)
+        reason = "manual_override"
+    elif current:
+        selected = current
+        reason = "session_locked"
+    else:
+        selected = choose_profile_for_text(text)
+        session_voice_cache.set_profile_name(session_id, selected)
+        reason = "first_selection"
+
+    return {
+        "voice_profile": selected,
+        "tts_engine": tts_engine,
+        "tts_voice_id": voice_id_for_engine(selected, tts_engine),
+        "voice_profile_reason": reason,
+    }
 
 
 def choose_bridge_format(channel: str, requested_format: str | None = None) -> str:
@@ -120,12 +144,11 @@ def choose_bridge_format(channel: str, requested_format: str | None = None) -> s
     if channel == "telegram":
         return "ogg"
     if channel == "feishu":
-        # Feishu final send requires audio bubble payload; mp3 may be converted to opus before upload.
         return "mp3"
     return "wav"
 
 
-def validate_bridge_response(content_type: str | None, body: bytes, min_bytes: int = 256) -> tuple[bool, str]:
+def validate_bridge_response(content_type: str | None, body: bytes, min_bytes: int = 1024) -> tuple[bool, str]:
     if not body:
         return False, "empty_audio"
     ctype = (content_type or "").lower()
@@ -162,6 +185,14 @@ def convert_to_feishu_opus(audio_bytes: bytes, input_format: str, output_dir: st
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0 or not out.exists() or out.stat().st_size == 0:
         raise RuntimeError(f"feishu_opus_conversion_failed: {result.stderr.strip()}")
+    logger.info(
+        "feishu_audio_converted",
+        extra={
+            "conversion_result": "ok",
+            "pre_conversion_format": input_format,
+            "converted_output_path": str(out),
+        },
+    )
     return out
 
 
@@ -181,6 +212,7 @@ def build_send_plan(channel: str, use_voice: bool) -> dict[str, object]:
             "asVoice": True,
             "ptt": True,
             "audio_as_voice": True,
+            "voice_note_flag": True,
         }
 
     if channel == "feishu":
@@ -188,21 +220,37 @@ def build_send_plan(channel: str, use_voice: bool) -> dict[str, object]:
             "final_send_mode": "feishu_audio_bubble",
             "msg_type": "audio",
             "requires_file_upload": True,
+            "disallow_generic_file": True,
         }
 
     return {"final_send_mode": "audio_attachment"}
 
 
-def log_tts_decision(channel: str, decision: bool, reason: str, provider: str, fmt: str | None, size: int | None) -> None:
+def log_tts_decision(
+    channel: str,
+    decision: bool,
+    reason: str,
+    provider: str,
+    fmt: str | None,
+    size: int | None,
+    *,
+    voice_profile: str | None = None,
+    tts_engine: str = "qwen",
+    voice_flags: dict[str, bool] | None = None,
+) -> None:
     logger.info(
         "tts_decision",
         extra={
             "channel": channel,
+            "voice_profile": voice_profile,
+            "tts_engine": tts_engine,
             "tts_decision": decision,
             "tts_reason": reason,
             "tts_provider": provider,
-            "output_format": fmt,
-            "output_size": size,
+            "requested_format": fmt,
+            "effective_format": fmt,
+            "audio_bytes": size,
+            "voice_flags": voice_flags or {},
         },
     )
 

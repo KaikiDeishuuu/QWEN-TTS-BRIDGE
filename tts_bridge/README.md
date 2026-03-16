@@ -302,3 +302,26 @@ logger.info("tts_route", extra={"channel": channel, "decision": use_voice, "reas
 3. Ensure equivalent voice-note flags: `asVoice=true` / `[[audio_as_voice]]` / `ptt=true`.
 4. Log channel, provider path, voice-note flag state, mime, and output bytes.
 
+
+## Voice Personality System
+
+The repository now includes `tts_bridge/voice_personality.py` for session-consistent voice behavior:
+
+- Profiles: `companion`, `playful`, `professional`, `neutral`
+- Engine compatibility: Edge + Qwen voice IDs
+- Session lock behavior: first expressive selection locks profile per `session_id`
+- Manual override: `[[tts:voice=companion]]`, `[[tts:voice=playful]]`, etc.
+
+Production logging fields to include during routing/sending:
+- `channel`
+- `voice_profile`
+- `tts_engine`
+- `requested_format`
+- `effective_format`
+- `audio_bytes`
+- `voice_flags`
+
+Feishu bubble delivery contract:
+- Never send generic file attachment for voice
+- Convert to opus and upload, then send `msg_type="audio"`
+
