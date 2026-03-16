@@ -309,3 +309,135 @@ def synthesize_with_fallback(reply_text, channel, cfg):
 - TTS failures never degrade or block main response pipeline.
 - Long technical explanations remain text-only.
 - Voice usage is selective, short, conversational, and platform-compliant.
+
+
+---
+
+## 13) Mandatory Pre-Production Inspection Flow (After `git pull`)
+
+Before enabling production TTS, OpenClaw must run a repository + deployment audit for security/stability.
+
+Required sequence:
+
+1. Pull latest repository and deployment files.
+2. Run static inspection for secrets, auth gaps, unsafe bind/public exposure, timeout/fallback controls.
+3. Run deployment checks (env vars, ffmpeg when needed, health endpoint, service supervision).
+4. Classify findings by severity.
+5. **If critical findings exist: do not enable production TTS**.
+6. If only non-critical findings exist: deploy with safe defaults and explicit warning logs.
+7. Keep Gemini text response path active regardless of audit outcome.
+
+Behavioral requirements for OpenClaw:
+
+- Report findings clearly and explicitly.
+- Never silently enable risky deployment behavior.
+- Never auto-expose bridge publicly.
+- Prefer safe defaults and explicit operator opt-in.
+- Do not let TTS issues degrade the main text reply pipeline.
+
+---
+
+## 14) Security and Stability Audit Checklist
+
+### 14.1 Findings (Concrete, Repository-Relevant)
+
+1. **Unsafe default bind risk**: `load_settings()` defaults `TTS_HOST` to `0.0.0.0` (publicly reachable if firewall is weak/misconfigured).  
+   Why it matters: Internal `/tts` can become internet-accessible and brute-forceable.
+
+2. **Error detail leakage risk**: `/tts` returns `detail=f"TTS synthesis failed: {exc}"` on 502.  
+   Why it matters: Upstream/internal exception details may leak implementation specifics.
+
+3. **Token comparison hardening gap**: bearer token comparison uses direct string equality.  
+   Why it matters: constant-time compare is safer against timing side channels in high-sensitivity environments.
+
+4. **Request-size / resource pressure risk**: `text` allows up to 5000 chars; large inputs can increase websocket + conversion time and memory use.  
+   Why it matters: Can trigger latency spikes and resource exhaustion under concurrency.
+
+5. **Blocking/slow path risk in request lifecycle**: external websocket synthesis + ffmpeg conversion are request-path operations with potentially high latency.  
+   Why it matters: Without strict timeout + concurrency controls, API responsiveness can degrade.
+
+6. **Deployment fragility risk**: example systemd unit uses hard-coded user/path values.  
+   Why it matters: pull-and-deploy automation may fail or run with incorrect filesystem assumptions.
+
+7. **Format/platform mismatch risk**: bridge supports wav/mp3/ogg, but platform requirements differ (Telegram voice expects OGG/OPUS; Feishu may require specific upload format).  
+   Why it matters: message delivery failures if format mapping is not explicit.
+
+8. **Secret handling operational risk**: sample `.env` and README include placeholder secrets that may be copied unsafely.  
+   Why it matters: accidental secret commits or weak tokens in production.
+
+### 14.2 Severity
+
+- **Critical**
+  - Bridge exposed publicly without network controls/auth hardening.
+  - Missing/invalid `INTERNAL_TTS_TOKEN` enforcement.
+  - TTS failures blocking core text response path.
+
+- **High**
+  - Error detail leakage to API clients.
+  - No bounded timeout/retry behavior in caller/orchestrator.
+  - No channel/platform-specific format policy.
+
+- **Medium**
+  - Non-constant-time token compare.
+  - Large input limits without stricter runtime caps and rate limits.
+  - Hard-coded deployment paths/user in systemd examples.
+
+- **Low**
+  - Documentation ambiguity that can lead to insecure operator assumptions.
+
+### 14.3 Recommended Fixes (Implementation-Oriented)
+
+1. **Bind safely by default**
+   - Change default host to `127.0.0.1`.
+   - Require explicit `ALLOW_PUBLIC_TTS=true` + CIDR allowlist before non-local bind.
+
+2. **Sanitize API errors**
+   - Return generic client errors (`"TTS synthesis failed"`) and keep full details only in server logs.
+
+3. **Harden auth checks**
+   - Use `hmac.compare_digest()` for token comparison.
+   - Add short auth-failure metrics and bounded retry policy in OpenClaw caller.
+
+4. **Constrain workload**
+   - Reduce request text max for voice path (recommended 320–800 chars).
+   - Add rate limiting / concurrency caps and request size guards.
+
+5. **Control latency impact**
+   - Keep strict timeouts on websocket and bridge HTTP calls.
+   - Use circuit breaker and fast fallback to text.
+
+6. **Strengthen deployment robustness**
+   - Parameterize systemd unit (working directory, user, env file path).
+   - Validate `ffmpeg` presence only when non-wav output is enabled.
+
+7. **Enforce platform mapping**
+   - Telegram -> OGG/OPUS via `sendVoice`.
+   - Feishu -> API-required upload/send format.
+
+8. **Secret hygiene**
+   - Never commit real keys.
+   - Enforce token strength/length checks at startup.
+
+### 14.4 Deployment Gate Rules
+
+**Must be fixed before production enablement (hard gate):**
+
+- Any critical finding.
+- Public exposure without explicit operator approval and network restrictions.
+- Missing auth token enforcement on `/tts`.
+- No verified fallback preserving text-only responses when TTS fails.
+
+**May be deferred with explicit risk acceptance (soft gate):**
+
+- Medium/low findings that do not threaten core chat availability or secret safety.
+- Deferred items must have owner + due date and remain logged in deployment report.
+
+### 14.5 Safe Defaults
+
+- `ENABLE_TTS=false` globally until audit passes.
+- `TTS_HOST=127.0.0.1` by default.
+- `TTS_PORT=8000` internal-only.
+- Prefer `wav` internally; enable mp3/ogg only when ffmpeg is present and required.
+- `tts_timeout_ms=3500` (or stricter), max one retry.
+- Per-channel toggles required (`telegram`, `feishu`) with independent disable switch.
+- Always preserve Gemini text path as primary success path.
