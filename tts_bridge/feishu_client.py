@@ -1,5 +1,6 @@
 import logging
 import time
+import subprocess
 import httpx
 from typing import Optional
 
@@ -36,35 +37,58 @@ class FeishuClient:
             self.token_expiry = time.time() + data.get("expire", 7200) - 60
             logger.info("Feishu tenant_access_token refreshed")
 
+    def _probe_duration_ms(self, file_path: str) -> int:
+        """Best-effort duration probe for opus upload; fallback to 3000ms."""
+        try:
+            out = subprocess.check_output(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "default=noprint_wrappers=1:nokey=1",
+                    file_path,
+                ],
+                text=True,
+            ).strip()
+            sec = float(out)
+            ms = max(1, int(sec * 1000))
+            return ms
+        except Exception:
+            return 3000
+
     async def upload_audio(self, file_path: str) -> str:
         """
-        Upload an audio file to Feishu and return the file_key.
+        Upload an opus audio file to Feishu and return file_key.
         Reference: https://open.feishu.cn/document/uAjLw4CM/ukTMzUjL5EzM14SO5MTN/reference/im-v1/file/create
         """
         await self._ensure_token()
-        
+
         url = "https://open.feishu.cn/open-apis/im/v1/files"
         headers = {
             "Authorization": f"Bearer {self.tenant_access_token}"
         }
-        
-        # Binary data for 'file' field, 'audio' for 'file_type'
+
+        duration_ms = self._probe_duration_ms(file_path)
         files = {
             "file": open(file_path, "rb")
         }
         data = {
             "file_name": "voice.opus",
-            "file_type": "audio"
+            "file_type": "opus",
+            "duration": str(duration_ms),
         }
-        
+
         async with httpx.AsyncClient() as client:
             resp = await client.post(url, headers=headers, data=data, files=files)
             resp.raise_for_status()
             res = resp.json()
-            
+
             if res.get("code") != 0:
                 raise RuntimeError(f"Feishu file upload failed: {res.get('msg')}")
-                
+
             file_key = res["data"]["file_key"]
-            logger.info(f"Feishu file uploaded successfully, key: {file_key[:6]}...")
+            logger.info(f"Feishu opus uploaded successfully, key: {file_key[:6]}...")
             return file_key

@@ -34,4 +34,6 @@ def load_settings() -> Settings:
         tts_voice=os.getenv("TTS_VOICE", "Maia"),
         qwen_ws_base=os.getenv("QWEN_WS_BASE", "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"),
         ws_timeout_seconds=float(os.getenv("WS_TIMEOUT_SECONDS", "45")),
+        feishu_app_id=os.getenv("FEISHU_APP_ID", "").strip(),
+        feishu_app_secret=os.getenv("FEISHU_APP_SECRET", "").strip(),
     )

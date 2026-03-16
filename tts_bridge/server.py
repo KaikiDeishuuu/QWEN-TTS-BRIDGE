@@ -136,7 +136,8 @@ async def tts(
         )
 
         media_type = media_type_for(effective_format)
-        
+        output_size = len(encoded_audio)
+
         # 3. Handle Feishu Pipeline
         if channel == "feishu":
             try:

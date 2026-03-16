@@ -114,4 +114,41 @@ OpenClaw should actively use voice for **Short & Expressive** messages but **For
 - [ ] `ffmpeg -version` is successful (required for Opus conversion).
 - [ ] `INTERNAL_TTS_TOKEN` is synced between OpenClaw and Bridge.
 - [ ] `FEISHU_APP_ID/SECRET` configured for native bubbles.
-.
+
+---
+
+## 7. Bug Fix Notes (2026-03-16)
+
+### Fixed issues
+
+1. **Feishu credentials were not loaded into runtime settings**
+   - Symptom: Feishu upload path always failed even when `.env` contained valid `FEISHU_APP_ID/FEISHU_APP_SECRET`.
+   - Fix: load both values in `tts_bridge/config.py` and pass them into the live settings object.
+
+2. **Feishu upload used the wrong file type for native voice bubbles**
+   - Symptom: `im/v1/files` returned `400 Bad Request` / `Invalid request param`.
+   - Root cause: Feishu native voice upload expects `file_type=opus` (not generic `audio`) and needs `duration` metadata.
+   - Fix: upload as `opus`, probe duration with `ffprobe`, and include `duration` in the multipart form.
+
+3. **Server crashed after successful Feishu upload**
+   - Symptom: upload succeeded and returned a `file_key`, but `/tts` still fell back because of `UnboundLocalError: output_size`.
+   - Fix: define `output_size = len(encoded_audio)` before the Feishu branch so logging does not reference an uninitialized variable.
+
+### Safe deployment reminders
+
+- Do **not** commit `.env`, API keys, bearer tokens, or uploaded media.
+- When validating Feishu audio:
+  1. confirm `/health` is `ok`
+  2. confirm `INTERNAL_TTS_TOKEN` is synchronized
+  3. verify `FEISHU_APP_ID/SECRET` are loaded by the service
+  4. test `/tts` with `channel=feishu`
+  5. confirm returned payload shape is:
+     ```json
+     {"msg_type":"audio","content":{"file_key":"..."}}
+     ```
+- If synthesis succeeds but Feishu upload fails, inspect:
+  - `journalctl -u tts-bridge -f`
+  - ffmpeg/ffprobe availability
+  - Feishu credential validity
+  - upload parameter shape (`opus` + `duration`)
+
