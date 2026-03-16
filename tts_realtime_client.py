@@ -57,7 +57,7 @@ class TTSRealtimeClient:
         self._current_response_id = None
         self._current_item_id = None
         self._is_responding = False
-        self._response_done_future = None
+        self._response_done_event = asyncio.Event()
 
 
     async def connect(self) -> None:
@@ -137,8 +137,7 @@ class TTSRealtimeClient:
 
     async def wait_for_response_done(self):
         """等待 response.done 事件"""
-        if self._response_done_future:
-            await self._response_done_future
+        await self._response_done_event.wait()
 
 
     async def handle_messages(self) -> None:
@@ -165,8 +164,8 @@ class TTSRealtimeClient:
                 elif event_type == "response.created":
                     self._current_response_id = event.get("response", {}).get("id")
                     self._is_responding = True
-                    # 创建新的 future 来等待 response.done
-                    self._response_done_future = asyncio.Future()
+                    # 重置事件，准备等待
+                    self._response_done_event.clear()
                     print("响应已创建，ID: ", self._current_response_id)
                 elif event_type == "response.output_item.added":
                     self._current_item_id = event.get("item", {}).get("id")
@@ -181,9 +180,8 @@ class TTSRealtimeClient:
                     self._is_responding = False
                     self._current_response_id = None
                     self._current_item_id = None
-                    # 标记 future 完成
-                    if self._response_done_future and not self._response_done_future.done():
-                        self._response_done_future.set_result(True)
+                    # 标记响应完成
+                    self._response_done_event.set()
                     print("响应完成")
                 elif event_type == "session.finished":
                     print("会话已结束")
