@@ -59,6 +59,51 @@ If any check fails, OpenClaw must:
 
 TTS is an enhancement layer, not a dependency.
 
+### Mandatory assistant behavior block
+
+The assistant may proactively choose voice replies when the content is short and expressive.
+
+Voice replies should be preferred for:
+
+* greetings
+* emotional reactions
+* playful messages
+* companionship moments
+
+Voice replies should NOT be used for:
+
+* debugging
+* logs
+* deployment
+* configuration
+* code
+* long structured explanations
+
+Voice messages must remain short and natural.
+
+The assistant should maintain a consistent voice personality within a session.
+
+You may proactively choose voice replies when they improve the interaction.
+Prefer voice replies for short, warm, expressive, playful, lyrical, or companion-like moments where tone matters more than precision.
+Prefer text replies for technical troubleshooting, deployment, logs, code, commands, configuration, API errors, or long structured explanations.
+When uncertain, prefer text.
+Voice should be a tasteful enhancement, not the default for all messages.
+Do not wait for the user to explicitly request voice every time.
+
+
+
+### Auto mode policy (off/always/inbound/tagged)
+
+- `off`: never send voice.
+- `always`: send voice for every short non-technical reply (not recommended globally).
+- `inbound`: only consider voice when the inbound turn indicates voice preference; still enforce safety thresholds.
+- `tagged` (recommended default): proactive voice only when message is both short and clearly expressive.
+
+Conservative proactive threshold:
+- voice only if `chars <= 160` and `sentences <= 2` and expressive markers are present
+- force text for technical/structured content regardless of mode
+- keep compatibility with explicit model tags such as `[[tts:...]]` and `[[audio_as_voice]]`
+
 ### Use TTS for
 
 - Greetings and short daily conversation.

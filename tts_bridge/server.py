@@ -22,6 +22,11 @@ class TTSRequest(BaseModel):
     text: str = Field(min_length=1, max_length=5000)
     voice_prompt: str | None = Field(default=None, max_length=1000)
     format: str = Field(default="wav")
+    channel: str | None = Field(default=None, max_length=64)
+    audio_as_voice: bool | None = Field(default=None)
+    ptt: bool | None = Field(default=None)
+    voice_profile: str | None = Field(default=None, max_length=64)
+    tts_engine: str = Field(default="qwen", max_length=32)
 
 
 def media_type_for(fmt: str) -> str:
@@ -58,12 +63,38 @@ async def tts(
 ) -> Response:
     validate_bearer_token(authorization, SETTINGS.internal_tts_token)
 
-    output_format = body.format.lower()
-    if output_format not in SUPPORTED_FORMATS:
+    channel = (body.channel or "unknown").lower()
+    requested_format = body.format.lower()
+    effective_format = requested_format
+
+    if channel == "telegram" and requested_format == "wav":
+        logger.info(
+            "Overriding default wav format to ogg for Telegram compatibility",
+            extra={"channel": channel, "requested_format": requested_format, "effective_format": "ogg"},
+        )
+        effective_format = "ogg"
+
+    if effective_format not in SUPPORTED_FORMATS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"format must be one of {sorted(SUPPORTED_FORMATS)}",
         )
+
+    logger.info(
+        "TTS request received",
+        extra={
+            "channel": channel,
+            "voice_profile": body.voice_profile,
+            "tts_engine": body.tts_engine,
+            "tts_path": "qwen_bridge",
+            "bridge_url": SETTINGS.qwen_ws_base,
+            "bridge_auth_mode": "bearer",
+            "requested_format": requested_format,
+            "effective_format": effective_format,
+            "voice_note_flag": bool(body.audio_as_voice) or bool(body.ptt),
+            "voice_flags": {"audio_as_voice": body.audio_as_voice, "ptt": body.ptt},
+        },
+    )
 
     cfg = QwenSynthesisConfig(
         ws_base=SETTINGS.qwen_ws_base,
@@ -80,12 +111,30 @@ async def tts(
             pcm_audio,
             sample_rate=cfg.sample_rate,
             channels=1,
-            output_format=output_format,
+            output_format=effective_format,
         )
-        return Response(content=encoded_audio, media_type=media_type_for(output_format))
+        media_type = media_type_for(effective_format)
+        output_size = len(encoded_audio)
+
+        logger.info(
+            "TTS response ready",
+            extra={
+                "channel": channel,
+                "voice_profile": body.voice_profile,
+                "tts_engine": body.tts_engine,
+                "tts_path": "qwen_bridge",
+                "response_content_type": media_type,
+                "requested_format": requested_format,
+                "effective_format": effective_format,
+                "audio_bytes": output_size,
+                "voice_note_flag": bool(body.audio_as_voice) or bool(body.ptt),
+                "voice_flags": {"audio_as_voice": body.audio_as_voice, "ptt": body.ptt},
+            },
+        )
+        return Response(content=encoded_audio, media_type=media_type)
     except TimeoutError as exc:
-        logger.exception("TTS timeout")
+        logger.exception("TTS timeout", extra={"channel": channel, "tts_path": "qwen_bridge"})
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc)) from exc
     except Exception as exc:
-        logger.exception("TTS synthesis failed")
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"TTS synthesis failed: {exc}") from exc
+        logger.exception("TTS synthesis failed", extra={"channel": channel, "tts_path": "qwen_bridge"})
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="TTS synthesis failed") from exc
