@@ -1,0 +1,17 @@
+[Unit]
+Description=OpenClaw TTS Bridge Service
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/openclaw
+EnvironmentFile=/opt/openclaw/tts_bridge/.env
+ExecStart=/opt/openclaw/venv/bin/uvicorn tts_bridge.server:app --host ${TTS_HOST} --port ${TTS_PORT}
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
