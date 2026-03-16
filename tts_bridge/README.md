@@ -252,3 +252,53 @@ curl -X POST http://localhost:8000/tts \
   --output test.wav
 ```
 
+
+## Channel-aware proactive TTS routing (reference implementation)
+
+Use `tts_bridge/channel_routing.py` as the policy layer between LLM text and channel-specific sending.
+
+Highlights:
+- Supports auto modes: `off`, `always`, `inbound`, `tagged` (recommended default).
+- Conservative proactive voice gate: short + clearly expressive only.
+- Technical and long responses are forced to text.
+- Preserves compatibility with `[[tts:...]]` and `[[audio_as_voice]]` tags.
+- Telegram path: voice-note payload (`sendVoice` style with `asVoice=true` / `ptt=true`).
+- Feishu path: convert to opus -> upload -> send `msg_type="audio"`.
+- Bridge response validation rejects JSON error bodies and tiny/non-audio outputs.
+
+Example policy usage:
+
+```python
+from tts_bridge.channel_routing import (
+    VoiceDecisionConfig,
+    should_use_voice,
+    choose_bridge_format,
+    validate_bridge_response,
+    build_send_plan,
+)
+
+cfg = VoiceDecisionConfig(mode="tagged", max_chars=160, max_sentences=2, min_expressive_hits=1)
+use_voice, reason = should_use_voice(reply_text, channel, cfg, inbound_voice_hint=inbound_voice_hint)
+fmt = choose_bridge_format(channel)
+
+# structured debug logs (recommended)
+logger.info("tts_route", extra={"channel": channel, "decision": use_voice, "reason": reason, "format": fmt})
+```
+
+### Feishu voice bubble checklist
+
+1. Generate bridge audio.
+2. Validate `content-type` and output size.
+3. Convert to opus when source is mp3/wav.
+4. Upload to Feishu files API.
+5. Require returned `file_key`.
+6. Send message with `msg_type="audio"`.
+7. If any step fails, send text fallback and log failure reason.
+
+### Telegram voice bubble checklist
+
+1. Select `format=ogg` for Telegram.
+2. Send using Telegram voice-note endpoint (not generic file endpoint).
+3. Ensure equivalent voice-note flags: `asVoice=true` / `[[audio_as_voice]]` / `ptt=true`.
+4. Log channel, provider path, voice-note flag state, mime, and output bytes.
+

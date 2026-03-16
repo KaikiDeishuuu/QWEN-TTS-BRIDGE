@@ -62,11 +62,13 @@ async def tts(
     validate_bearer_token(authorization, SETTINGS.internal_tts_token)
 
     channel = (body.channel or "unknown").lower()
-    output_format = body.format.lower()
-    if channel == "telegram" and body.format == "wav":
+    requested_format = body.format.lower()
+    output_format = requested_format
+
+    if channel == "telegram" and requested_format == "wav":
         logger.info(
             "Overriding default wav format to ogg for Telegram compatibility",
-            extra={"channel": channel, "requested_format": body.format, "effective_format": "ogg"},
+            extra={"channel": channel, "requested_format": requested_format, "effective_format": "ogg"},
         )
         output_format = "ogg"
 
@@ -75,7 +77,7 @@ async def tts(
         extra={
             "channel": channel,
             "tts_path": "qwen_bridge",
-            "requested_format": body.format,
+            "requested_format": requested_format,
             "effective_format": output_format,
             "audio_as_voice": body.audio_as_voice,
             "ptt": body.ptt,
@@ -113,6 +115,7 @@ async def tts(
                 "channel": channel,
                 "tts_path": "qwen_bridge",
                 "content_type": media_type,
+                "output_format": output_format,
                 "output_bytes": output_size,
                 "audio_as_voice": body.audio_as_voice,
                 "ptt": body.ptt,
@@ -120,8 +123,8 @@ async def tts(
         )
         return Response(content=encoded_audio, media_type=media_type)
     except TimeoutError as exc:
-        logger.exception("TTS timeout")
+        logger.exception("TTS timeout", extra={"channel": channel, "tts_path": "qwen_bridge"})
         raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc)) from exc
     except Exception as exc:
-        logger.exception("TTS synthesis failed")
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"TTS synthesis failed: {exc}") from exc
+        logger.exception("TTS synthesis failed", extra={"channel": channel, "tts_path": "qwen_bridge"})
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="TTS synthesis failed") from exc
