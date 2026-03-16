@@ -4,11 +4,11 @@ After=network.target
 
 [Service]
 Type=simple
-User=haowei_ub
-Group=haowei_ub
-WorkingDirectory=/home/haowei_ub/dev_hw/TTS_QWprivate
-EnvironmentFile=/home/haowei_ub/dev_hw/TTS_QWprivate/.env
-ExecStart=/home/haowei_ub/dev_hw/TTS_QWprivate/venv_bridge/bin/uvicorn tts_bridge.server:app --host 127.0.0.1 --port 8000
+User=root
+Group=root
+WorkingDirectory=/root/.openclaw/workspace/Graces_Tools/QWEN-TTS-BRIDGE
+EnvironmentFile=/root/.openclaw/workspace/Graces_Tools/QWEN-TTS-BRIDGE/.env
+ExecStart=/root/.openclaw/workspace/Graces_Tools/QWEN-TTS-BRIDGE/venv_bridge/bin/uvicorn tts_bridge.server:app --host 127.0.0.1 --port 8000
 Restart=always
 RestartSec=5
 
