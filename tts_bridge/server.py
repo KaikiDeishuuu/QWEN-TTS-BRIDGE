@@ -69,6 +69,7 @@ async def tts(
         ws_base=SETTINGS.qwen_ws_base,
         model=SETTINGS.tts_model,
         api_key=SETTINGS.dashscope_api_key,
+        voice=SETTINGS.tts_voice,
     )
 
     try:

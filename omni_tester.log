@@ -1,0 +1,664 @@
+2026-03-16 11:11:08,751|INFO|Connecting to WebSocket server at wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=qwen3-asr-flash-realtime...
+2026-03-16 11:11:09,004|INFO|Connected to server.
+2026-03-16 11:11:09,007|INFO|Sending event: {
+  "event_id": "event_123",
+  "type": "session.update",
+  "session": {
+    "modalities": [
+      "text"
+    ],
+    "input_audio_format": "pcm",
+    "sample_rate": 16000,
+    "input_audio_transcription": {
+      "language": "zh"
+    },
+    "turn_detection": {
+      "type": "server_vad",
+      "threshold": 0.0,
+      "silence_duration_ms": 400
+    }
+  }
+}
+2026-03-16 11:11:09,008|INFO|Received event: {
+  "event_id": "event_Ndspqckf8xLSpucL5z9N9",
+  "type": "session.created",
+  "session": {
+    "object": "realtime.session",
+    "model": "qwen3-asr-flash-realtime",
+    "modalities": [
+      "text"
+    ],
+    "input_audio_format": "pcm",
+    "sample_rate": 16000,
+    "input_audio_transcription": {
+      "model": "qwen3-asr-flash-realtime"
+    },
+    "turn_detection": {
+      "type": "server_vad",
+      "threshold": 0.2,
+      "silence_duration_ms": 800
+    },
+    "id": "sess_HaUBrCPp37FxwFYPNCEAg"
+  }
+}
+2026-03-16 11:11:09,116|INFO|Received event: {
+  "event_id": "event_TkZRGvaUdVuMQC38unj95",
+  "type": "session.updated",
+  "session": {
+    "id": "sess_HaUBrCPp37FxwFYPNCEAg",
+    "object": "realtime.session",
+    "model": "qwen3-asr-flash-realtime",
+    "modalities": [
+      "text"
+    ],
+    "input_audio_format": "pcm",
+    "input_audio_transcription": {
+      "model": "qwen3-asr-flash-realtime",
+      "language": "zh"
+    },
+    "turn_detection": {
+      "type": "server_vad",
+      "threshold": 0.0,
+      "silence_duration_ms": 400,
+      "create_response": true,
+      "interrupt_response": true
+    },
+    "sample_rate": 16000
+  }
+}
+2026-03-16 11:11:11,752|INFO|文件读取开始: 2026-03-16 11:11:11.752
+2026-03-16 11:11:11,755|INFO|Sending audio event: event_1773630671752
+2026-03-16 11:11:11,855|INFO|Sending audio event: event_1773630671855
+2026-03-16 11:11:11,953|INFO|Received event: {
+  "event_id": "event_JcGqgLe5VJzpCtjxJJ82N",
+  "type": "input_audio_buffer.speech_started",
+  "audio_start_ms": 0,
+  "item_id": "item_VjK7nv8cy6ychH74kAXcF"
+}
+2026-03-16 11:11:11,956|INFO|Sending audio event: event_1773630671956
+2026-03-16 11:11:12,056|INFO|Sending audio event: event_1773630672056
+2026-03-16 11:11:12,157|INFO|Sending audio event: event_1773630672157
+2026-03-16 11:11:12,251|INFO|Received event: {
+  "event_id": "event_YiMMt4zmFZb3esDCaiVzn",
+  "type": "conversation.item.created",
+  "item": {
+    "id": "item_VjK7nv8cy6ychH74kAXcF",
+    "object": "realtime.item",
+    "type": "message",
+    "status": "in_progress",
+    "role": "assistant",
+    "content": [
+      {
+        "type": "input_audio"
+      }
+    ]
+  }
+}
+2026-03-16 11:11:12,252|INFO|Received event: {
+  "event_id": "event_H9585YEWaDfuSJcTZRul7",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_VjK7nv8cy6ychH74kAXcF",
+  "content_index": 0,
+  "text": "",
+  "stash": "你好",
+  "language": "zh",
+  "emotion": "sad"
+}
+2026-03-16 11:11:12,258|INFO|Received event: {
+  "event_id": "event_U4XRvNTnbCtMfVefKvV8w",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_VjK7nv8cy6ychH74kAXcF",
+  "content_index": 0,
+  "text": "",
+  "stash": "你好。",
+  "language": "zh",
+  "emotion": "sad"
+}
+2026-03-16 11:11:12,258|INFO|Sending audio event: event_1773630672257
+2026-03-16 11:11:12,359|INFO|Sending audio event: event_1773630672358
+2026-03-16 11:11:12,459|INFO|Sending audio event: event_1773630672459
+2026-03-16 11:11:12,560|INFO|Sending audio event: event_1773630672560
+2026-03-16 11:11:12,661|INFO|Sending audio event: event_1773630672661
+2026-03-16 11:11:12,762|INFO|Sending audio event: event_1773630672762
+2026-03-16 11:11:12,836|INFO|Received event: {
+  "event_id": "event_OXiQyueGouTQs8UPnZCeA",
+  "type": "input_audio_buffer.speech_stopped",
+  "audio_end_ms": 1000,
+  "item_id": "item_VjK7nv8cy6ychH74kAXcF"
+}
+2026-03-16 11:11:12,837|INFO|Received event: {
+  "event_id": "event_SoKDSOzqXYapuVtEGSCBS",
+  "type": "input_audio_buffer.committed",
+  "item_id": "item_VjK7nv8cy6ychH74kAXcF"
+}
+2026-03-16 11:11:12,863|INFO|Sending audio event: event_1773630672863
+2026-03-16 11:11:12,963|INFO|Sending audio event: event_1773630672963
+2026-03-16 11:11:12,990|INFO|Received event: {
+  "event_id": "event_QCwyUvr83YL2jTpcUv5If",
+  "type": "conversation.item.input_audio_transcription.completed",
+  "item_id": "item_VjK7nv8cy6ychH74kAXcF",
+  "content_index": 0,
+  "transcript": "你好。",
+  "language": "zh",
+  "emotion": "neutral",
+  "usage": {
+    "duration": 1,
+    "total_tokens": 39,
+    "input_tokens": 30,
+    "output_tokens": 9,
+    "input_tokens_details": {
+      "text_tokens": 3,
+      "audio_tokens": 27
+    },
+    "output_tokens_details": {
+      "text_tokens": 9
+    }
+  }
+}
+2026-03-16 11:11:13,039|INFO|Received event: {
+  "event_id": "event_YpicbhXpKcCwXxg5qit7q",
+  "type": "input_audio_buffer.speech_started",
+  "audio_start_ms": 1048,
+  "item_id": "item_C8nFeuyBDRDYKnIdpMxIY"
+}
+2026-03-16 11:11:13,064|INFO|Sending audio event: event_1773630673064
+2026-03-16 11:11:13,165|INFO|Sending audio event: event_1773630673165
+2026-03-16 11:11:13,239|INFO|Received event: {
+  "event_id": "event_V2ncPZqFG3E9eLWRIuIKa",
+  "type": "conversation.item.created",
+  "previous_item_id": "item_VjK7nv8cy6ychH74kAXcF",
+  "item": {
+    "id": "item_C8nFeuyBDRDYKnIdpMxIY",
+    "object": "realtime.item",
+    "type": "message",
+    "status": "in_progress",
+    "role": "assistant",
+    "content": [
+      {
+        "type": "input_audio"
+      }
+    ]
+  }
+}
+2026-03-16 11:11:13,240|INFO|Received event: {
+  "event_id": "event_E3EcSZ2KsCQDfcVZsbZcP",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_C8nFeuyBDRDYKnIdpMxIY",
+  "content_index": 0,
+  "text": "",
+  "stash": "嗯",
+  "language": "zh",
+  "emotion": "sad"
+}
+2026-03-16 11:11:13,254|INFO|Received event: {
+  "event_id": "event_G13mPIZSYvnLpWV5xlhjB",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_C8nFeuyBDRDYKnIdpMxIY",
+  "content_index": 0,
+  "text": "",
+  "stash": "嗯。",
+  "language": "zh",
+  "emotion": "sad"
+}
+2026-03-16 11:11:13,266|INFO|Sending audio event: event_1773630673266
+2026-03-16 11:11:13,367|INFO|Sending audio event: event_1773630673367
+2026-03-16 11:11:13,467|INFO|Sending audio event: event_1773630673467
+2026-03-16 11:11:13,536|INFO|Received event: {
+  "event_id": "event_H6EcuBzjgrEe3RWX8BfwP",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_C8nFeuyBDRDYKnIdpMxIY",
+  "content_index": 0,
+  "text": "",
+  "stash": "很高",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:13,543|INFO|Received event: {
+  "event_id": "event_Y9UOI2DRLDg85phxGQ47m",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_C8nFeuyBDRDYKnIdpMxIY",
+  "content_index": 0,
+  "text": "",
+  "stash": "很高。",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:13,568|INFO|Sending audio event: event_1773630673568
+2026-03-16 11:11:13,669|INFO|Sending audio event: event_1773630673669
+2026-03-16 11:11:13,769|INFO|Sending audio event: event_1773630673769
+2026-03-16 11:11:13,870|INFO|Sending audio event: event_1773630673870
+2026-03-16 11:11:13,971|INFO|Sending audio event: event_1773630673971
+2026-03-16 11:11:14,072|INFO|Sending audio event: event_1773630674071
+2026-03-16 11:11:14,173|INFO|Sending audio event: event_1773630674172
+2026-03-16 11:11:14,243|INFO|Received event: {
+  "event_id": "event_RCaEQAFqVydEnoEsxafaO",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_C8nFeuyBDRDYKnIdpMxIY",
+  "content_index": 0,
+  "text": "",
+  "stash": "很高兴",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:14,251|INFO|Received event: {
+  "event_id": "event_XyXnvW6WUf9EdLtBYVneD",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_C8nFeuyBDRDYKnIdpMxIY",
+  "content_index": 0,
+  "text": "",
+  "stash": "很高兴见到",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:14,256|INFO|Received event: {
+  "event_id": "event_ZC63t74Cgl5lBX51P1bsa",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_C8nFeuyBDRDYKnIdpMxIY",
+  "content_index": 0,
+  "text": "",
+  "stash": "很高兴见到。",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:14,273|INFO|Sending audio event: event_1773630674273
+2026-03-16 11:11:14,374|INFO|Sending audio event: event_1773630674374
+2026-03-16 11:11:14,475|INFO|Sending audio event: event_1773630674474
+2026-03-16 11:11:14,575|INFO|Sending audio event: event_1773630674575
+2026-03-16 11:11:14,676|INFO|Sending audio event: event_1773630674676
+2026-03-16 11:11:14,776|INFO|Sending audio event: event_1773630674776
+2026-03-16 11:11:14,877|INFO|Sending audio event: event_1773630674877
+2026-03-16 11:11:14,970|INFO|Received event: {
+  "event_id": "event_TJ7yknt9LJ74RHIEMLBMK",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_C8nFeuyBDRDYKnIdpMxIY",
+  "content_index": 0,
+  "text": "",
+  "stash": "很高兴见到你",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:14,976|INFO|Received event: {
+  "event_id": "event_AbYWTDsMA5Kr8XbflpNzk",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_C8nFeuyBDRDYKnIdpMxIY",
+  "content_index": 0,
+  "text": "",
+  "stash": "很高兴见到你。",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:14,978|INFO|Sending audio event: event_1773630674977
+2026-03-16 11:11:15,078|INFO|Sending audio event: event_1773630675078
+2026-03-16 11:11:15,179|INFO|Sending audio event: event_1773630675179
+2026-03-16 11:11:15,279|INFO|Sending audio event: event_1773630675279
+2026-03-16 11:11:15,365|INFO|Received event: {
+  "event_id": "event_ZPqOlXWmK1Uwx2GTysy1Y",
+  "type": "input_audio_buffer.speech_stopped",
+  "audio_end_ms": 3552,
+  "item_id": "item_C8nFeuyBDRDYKnIdpMxIY"
+}
+2026-03-16 11:11:15,365|INFO|Received event: {
+  "event_id": "event_Qh4BQut4wKNEnJ5TFSsAc",
+  "type": "input_audio_buffer.committed",
+  "previous_item_id": "item_VjK7nv8cy6ychH74kAXcF",
+  "item_id": "item_C8nFeuyBDRDYKnIdpMxIY"
+}
+2026-03-16 11:11:15,380|INFO|Sending audio event: event_1773630675380
+2026-03-16 11:11:15,479|INFO|Received event: {
+  "event_id": "event_AuXSPNXMia75uaRsV9UQZ",
+  "type": "conversation.item.input_audio_transcription.completed",
+  "item_id": "item_C8nFeuyBDRDYKnIdpMxIY",
+  "content_index": 0,
+  "transcript": "很高兴见到你。",
+  "language": "zh",
+  "emotion": "neutral",
+  "usage": {
+    "duration": 4,
+    "total_tokens": 97,
+    "input_tokens": 74,
+    "output_tokens": 23,
+    "input_tokens_details": {
+      "text_tokens": 6,
+      "audio_tokens": 68
+    },
+    "output_tokens_details": {
+      "text_tokens": 23
+    }
+  }
+}
+2026-03-16 11:11:15,480|INFO|Sending audio event: event_1773630675480
+2026-03-16 11:11:15,581|INFO|Sending audio event: event_1773630675581
+2026-03-16 11:11:15,682|INFO|Sending audio event: event_1773630675682
+2026-03-16 11:11:15,745|INFO|Received event: {
+  "event_id": "event_CDvdD7AhQNFzNHItlgqQ3",
+  "type": "input_audio_buffer.speech_started",
+  "audio_start_ms": 3640,
+  "item_id": "item_MMqFVWvguRBURYVHl91IF"
+}
+2026-03-16 11:11:15,783|INFO|Sending audio event: event_1773630675782
+2026-03-16 11:11:15,883|INFO|Sending audio event: event_1773630675883
+2026-03-16 11:11:15,887|INFO|Received event: {
+  "event_id": "event_Rzq5te55GlbOMCqZqSDpK",
+  "type": "conversation.item.created",
+  "previous_item_id": "item_C8nFeuyBDRDYKnIdpMxIY",
+  "item": {
+    "id": "item_MMqFVWvguRBURYVHl91IF",
+    "object": "realtime.item",
+    "type": "message",
+    "status": "in_progress",
+    "role": "assistant",
+    "content": [
+      {
+        "type": "input_audio"
+      }
+    ]
+  }
+}
+2026-03-16 11:11:15,887|INFO|Received event: {
+  "event_id": "event_WKTTifTOyKwT3EifECEan",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_MMqFVWvguRBURYVHl91IF",
+  "content_index": 0,
+  "text": "",
+  "stash": "如",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:15,895|INFO|Received event: {
+  "event_id": "event_OwXF4oyeFm845LHu9Ntkv",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_MMqFVWvguRBURYVHl91IF",
+  "content_index": 0,
+  "text": "",
+  "stash": "如。",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:15,984|INFO|Sending audio event: event_1773630675984
+2026-03-16 11:11:16,085|INFO|Sending audio event: event_1773630676084
+2026-03-16 11:11:16,162|INFO|Received event: {
+  "event_id": "event_BUtWqju3xGeuYSJTQATo8",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_MMqFVWvguRBURYVHl91IF",
+  "content_index": 0,
+  "text": "",
+  "stash": "如果你",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:16,171|INFO|Received event: {
+  "event_id": "event_XqmvqPqFVtrmXk9FxBTUO",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_MMqFVWvguRBURYVHl91IF",
+  "content_index": 0,
+  "text": "",
+  "stash": "如果你。",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:16,187|INFO|Sending audio event: event_1773630676187
+2026-03-16 11:11:16,287|INFO|Sending audio event: event_1773630676287
+2026-03-16 11:11:16,388|INFO|Sending audio event: event_1773630676388
+2026-03-16 11:11:16,489|INFO|Sending audio event: event_1773630676488
+2026-03-16 11:11:16,589|INFO|Sending audio event: event_1773630676589
+2026-03-16 11:11:16,690|INFO|Sending audio event: event_1773630676690
+2026-03-16 11:11:16,791|INFO|Sending audio event: event_1773630676791
+2026-03-16 11:11:16,869|INFO|Received event: {
+  "event_id": "event_SnGr6rdcgm3ZmfJLmDCul",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_MMqFVWvguRBURYVHl91IF",
+  "content_index": 0,
+  "text": "",
+  "stash": "如果你现在",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:16,876|INFO|Received event: {
+  "event_id": "event_BTtFjGBjAr3Be9KLyHJ6p",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_MMqFVWvguRBURYVHl91IF",
+  "content_index": 0,
+  "text": "",
+  "stash": "如果你现在听",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:16,883|INFO|Received event: {
+  "event_id": "event_Eatjxwqwi5AbVha9rTgL7",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_MMqFVWvguRBURYVHl91IF",
+  "content_index": 0,
+  "text": "",
+  "stash": "如果你现在听。",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:16,891|INFO|Sending audio event: event_1773630676891
+2026-03-16 11:11:16,992|INFO|Sending audio event: event_1773630676992
+2026-03-16 11:11:17,093|INFO|Sending audio event: event_1773630677093
+2026-03-16 11:11:17,194|INFO|Sending audio event: event_1773630677193
+2026-03-16 11:11:17,295|INFO|Sending audio event: event_1773630677294
+2026-03-16 11:11:17,395|INFO|Sending audio event: event_1773630677395
+2026-03-16 11:11:17,496|INFO|Sending audio event: event_1773630677496
+2026-03-16 11:11:17,583|INFO|Received event: {
+  "event_id": "event_MaS5pV6GkeznTxiSpcO9w",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_MMqFVWvguRBURYVHl91IF",
+  "content_index": 0,
+  "text": "",
+  "stash": "如果你现在听到",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:17,589|INFO|Received event: {
+  "event_id": "event_VBFMK3pK87M5Ed2KdlT9T",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_MMqFVWvguRBURYVHl91IF",
+  "content_index": 0,
+  "text": "",
+  "stash": "如果你现在听到这段",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:17,597|INFO|Sending audio event: event_1773630677596
+2026-03-16 11:11:17,597|INFO|Received event: {
+  "event_id": "event_NN89qRcBrQEpHyeP7w6bR",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_MMqFVWvguRBURYVHl91IF",
+  "content_index": 0,
+  "text": "",
+  "stash": "如果你现在听到这段。",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:17,698|INFO|Sending audio event: event_1773630677698
+2026-03-16 11:11:17,799|INFO|Sending audio event: event_1773630677798
+2026-03-16 11:11:17,899|INFO|Sending audio event: event_1773630677899
+2026-03-16 11:11:18,000|INFO|Sending audio event: event_1773630677999
+2026-03-16 11:11:18,100|INFO|Sending audio event: event_1773630678100
+2026-03-16 11:11:18,201|INFO|Sending audio event: event_1773630678201
+2026-03-16 11:11:18,302|INFO|Sending audio event: event_1773630678302
+2026-03-16 11:11:18,403|INFO|Sending audio event: event_1773630678403
+2026-03-16 11:11:18,503|INFO|Sending audio event: event_1773630678503
+2026-03-16 11:11:18,604|INFO|Sending audio event: event_1773630678604
+2026-03-16 11:11:18,705|INFO|Sending audio event: event_1773630678705
+2026-03-16 11:11:18,806|INFO|Sending audio event: event_1773630678805
+2026-03-16 11:11:18,907|INFO|Sending audio event: event_1773630678907
+2026-03-16 11:11:19,008|INFO|Sending audio event: event_1773630679007
+2026-03-16 11:11:19,108|INFO|Sending audio event: event_1773630679108
+2026-03-16 11:11:19,209|INFO|Sending audio event: event_1773630679209
+2026-03-16 11:11:19,310|INFO|Sending audio event: event_1773630679309
+2026-03-16 11:11:19,410|INFO|Sending audio event: event_1773630679410
+2026-03-16 11:11:19,511|INFO|Sending audio event: event_1773630679511
+2026-03-16 11:11:19,612|INFO|Sending audio event: event_1773630679612
+2026-03-16 11:11:19,688|INFO|Received event: {
+  "event_id": "event_BjaT3JUt8ZifhgAsCi6pY",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_MMqFVWvguRBURYVHl91IF",
+  "content_index": 0,
+  "text": "",
+  "stash": "如果你现在听到这段声音",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:19,693|INFO|Received event: {
+  "event_id": "event_DSVyDGtolfX1hDja5QocH",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_MMqFVWvguRBURYVHl91IF",
+  "content_index": 0,
+  "text": "",
+  "stash": "如果你现在听到这段声音，",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:19,712|INFO|Sending audio event: event_1773630679712
+2026-03-16 11:11:19,754|INFO|Received event: {
+  "event_id": "event_DDrOq7fShns7HFhrU54EZ",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_MMqFVWvguRBURYVHl91IF",
+  "content_index": 0,
+  "text": "",
+  "stash": "如果你现在听到这段声音，说明",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:19,756|INFO|Received event: {
+  "event_id": "event_T8ElxIF3pfbnmRpgTgrnv",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_MMqFVWvguRBURYVHl91IF",
+  "content_index": 0,
+  "text": "",
+  "stash": "如果你现在听到这段声音，说明语音",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:19,764|INFO|Received event: {
+  "event_id": "event_BZnyWgcDUHEnmcEgHG65u",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_MMqFVWvguRBURYVHl91IF",
+  "content_index": 0,
+  "text": "",
+  "stash": "如果你现在听到这段声音，说明语音。",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:19,813|INFO|Sending audio event: event_1773630679813
+2026-03-16 11:11:19,914|INFO|Sending audio event: event_1773630679914
+2026-03-16 11:11:20,015|INFO|Sending audio event: event_1773630680014
+2026-03-16 11:11:20,115|INFO|Sending audio event: event_1773630680115
+2026-03-16 11:11:20,217|INFO|Sending audio event: event_1773630680216
+2026-03-16 11:11:20,317|INFO|Sending audio event: event_1773630680317
+2026-03-16 11:11:20,418|INFO|Sending audio event: event_1773630680418
+2026-03-16 11:11:20,519|INFO|Sending audio event: event_1773630680518
+2026-03-16 11:11:20,619|INFO|Sending audio event: event_1773630680619
+2026-03-16 11:11:20,720|INFO|Sending audio event: event_1773630680720
+2026-03-16 11:11:20,821|INFO|Sending audio event: event_1773630680821
+2026-03-16 11:11:20,922|INFO|Sending audio event: event_1773630680921
+2026-03-16 11:11:21,022|INFO|Sending audio event: event_1773630681022
+2026-03-16 11:11:21,123|INFO|Sending audio event: event_1773630681123
+2026-03-16 11:11:21,224|INFO|Sending audio event: event_1773630681224
+2026-03-16 11:11:21,325|INFO|Sending audio event: event_1773630681325
+2026-03-16 11:11:21,426|INFO|Sending audio event: event_1773630681426
+2026-03-16 11:11:21,527|INFO|Sending audio event: event_1773630681527
+2026-03-16 11:11:21,627|INFO|Sending audio event: event_1773630681627
+2026-03-16 11:11:21,690|INFO|Received event: {
+  "event_id": "event_P6u4CfoHcWq9Zwhzeos9o",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_MMqFVWvguRBURYVHl91IF",
+  "content_index": 0,
+  "text": "如果你现在听到这段",
+  "stash": "声音，说明语音系统",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:21,696|INFO|Received event: {
+  "event_id": "event_KvWsoL4TntmHxueW5UP7s",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_MMqFVWvguRBURYVHl91IF",
+  "content_index": 0,
+  "text": "如果你现在听到这段声音",
+  "stash": "，说明语音系统已经",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:21,704|INFO|Received event: {
+  "event_id": "event_DApeAOkjEjO9RJoY3wLiz",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_MMqFVWvguRBURYVHl91IF",
+  "content_index": 0,
+  "text": "如果你现在听到这段声音，",
+  "stash": "说明语音系统已经正常",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:21,712|INFO|Received event: {
+  "event_id": "event_FKUwrQmD5dsus1lCexKLq",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_MMqFVWvguRBURYVHl91IF",
+  "content_index": 0,
+  "text": "如果你现在听到这段声音，说明",
+  "stash": "语音系统已经正常工作",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:21,721|INFO|Received event: {
+  "event_id": "event_LCe6ewNFpB9ckHbsWeyUU",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_MMqFVWvguRBURYVHl91IF",
+  "content_index": 0,
+  "text": "如果你现在听到这段声音，说明语音",
+  "stash": "系统已经正常工作了",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:21,728|INFO|文件读取完毕: 2026-03-16 11:11:21.728
+2026-03-16 11:11:21,728|INFO|Received event: {
+  "event_id": "event_CDsVuxwOIiXOZV4VaV21K",
+  "type": "conversation.item.input_audio_transcription.text",
+  "item_id": "item_MMqFVWvguRBURYVHl91IF",
+  "content_index": 0,
+  "text": "如果你现在听到这段声音，说明语音系统",
+  "stash": "已经正常工作了。",
+  "language": "zh",
+  "emotion": "neutral"
+}
+2026-03-16 11:11:21,802|INFO|Received event: {
+  "event_id": "event_J9mNndKNAlGOeXK4C3Jhm",
+  "type": "input_audio_buffer.speech_stopped",
+  "audio_end_ms": 9840,
+  "item_id": "item_MMqFVWvguRBURYVHl91IF"
+}
+2026-03-16 11:11:21,802|INFO|Received event: {
+  "event_id": "event_Ft1wVCz8EEeL8jJKOZae9",
+  "type": "input_audio_buffer.committed",
+  "previous_item_id": "item_C8nFeuyBDRDYKnIdpMxIY",
+  "item_id": "item_MMqFVWvguRBURYVHl91IF"
+}
+2026-03-16 11:11:21,941|INFO|Received event: {
+  "event_id": "event_Toe95qUrPGcXT3bUIzSIK",
+  "type": "conversation.item.input_audio_transcription.completed",
+  "item_id": "item_MMqFVWvguRBURYVHl91IF",
+  "content_index": 0,
+  "transcript": "如果你现在听到这段声音，说明语音系统已经正常工作了。",
+  "language": "zh",
+  "emotion": "neutral",
+  "usage": {
+    "duration": 10,
+    "total_tokens": 222,
+    "input_tokens": 172,
+    "output_tokens": 50,
+    "input_tokens_details": {
+      "text_tokens": 9,
+      "audio_tokens": 163
+    },
+    "output_tokens_details": {
+      "text_tokens": 50
+    }
+  }
+}
+2026-03-16 11:11:21,942|INFO|Received event: {
+  "event_id": "event_SFipE6jMT6cI26kisPEIs",
+  "type": "session.finished"
+}
+2026-03-16 11:11:21,942|INFO|Closing WebSocket connection after session finished...
+2026-03-16 11:11:21,990|INFO|Connection closed: None - None

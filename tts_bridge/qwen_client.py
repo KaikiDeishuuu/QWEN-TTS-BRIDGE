@@ -17,6 +17,7 @@ class QwenSynthesisConfig:
     ws_base: str
     model: str
     api_key: str
+    voice: str = "Maia"
     sample_rate: int = 24000
     mode: str = "commit"
 
@@ -55,6 +56,7 @@ class QwenRealtimeTTSClient:
 
         session = {
             "mode": self._config.mode,
+            "voice": self._config.voice,
             "response_format": "pcm",
             "sample_rate": self._config.sample_rate,
         }

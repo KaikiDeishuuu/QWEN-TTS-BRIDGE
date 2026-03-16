@@ -4,14 +4,13 @@ After=network.target
 
 [Service]
 Type=simple
-User=www-data
-WorkingDirectory=/opt/openclaw
-EnvironmentFile=/opt/openclaw/tts_bridge/.env
-ExecStart=/opt/openclaw/venv/bin/uvicorn tts_bridge.server:app --host ${TTS_HOST} --port ${TTS_PORT}
+User=haowei_ub
+Group=haowei_ub
+WorkingDirectory=/home/haowei_ub/dev_hw/TTS_QWprivate
+EnvironmentFile=/home/haowei_ub/dev_hw/TTS_QWprivate/.env
+ExecStart=/home/haowei_ub/dev_hw/TTS_QWprivate/venv_bridge/bin/uvicorn tts_bridge.server:app --host 127.0.0.1 --port 8000
 Restart=always
-RestartSec=3
-StandardOutput=journal
-StandardError=journal
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
