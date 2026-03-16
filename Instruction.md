@@ -103,6 +103,7 @@ OpenClaw should actively use voice for **Short & Expressive** messages but **For
 
 ### 5.2 Failure & Fallback
 - **Safety First**: If the Bridge returns a JSON with `fallback_to_text: true`, OpenClaw **must** deliver the Gemini text response.
+- **Telegram Fallback**: If `sendVoice` fails with `VOICE_MESSAGES_FORBIDDEN` (e.g. user settings or bot permissions), the orchestrator SHOULD automatically retry with `sendAudio`.
 - **Binary Check**: If a standard response is binary but `< 1KB`, treat it as a failure and fallback to text.
 - **Timeout**: Enforce a strict timeout of `3.5s` for TTS calls to avoid blocking the user experience.
 
