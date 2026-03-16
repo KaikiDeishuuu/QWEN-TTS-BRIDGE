@@ -144,7 +144,7 @@ def choose_bridge_format(channel: str, requested_format: str | None = None) -> s
     if channel == "telegram":
         return "ogg"
     if channel == "feishu":
-        return "mp3"
+        return "ogg"
     return "wav"
 
 
