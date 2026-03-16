@@ -1,0 +1,7 @@
+.env
+__pycache__/
+*.py[cod]
+*$py.class
+outputs/
+*.wav
+venv_bridge/
