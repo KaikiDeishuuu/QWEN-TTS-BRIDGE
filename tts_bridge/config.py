@@ -12,7 +12,8 @@ class Settings:
     internal_tts_token: str = ""
     qwen_ws_base: str = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
     ws_timeout_seconds: float = 45.0
-
+    feishu_app_id: str = ""
+    feishu_app_secret: str = ""
 
 
 def load_settings() -> Settings:

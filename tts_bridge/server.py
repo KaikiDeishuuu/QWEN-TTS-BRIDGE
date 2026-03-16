@@ -7,8 +7,14 @@ from pydantic import BaseModel, Field
 
 from .auth import auth_dependency, validate_bearer_token
 from .audio_utils import SUPPORTED_FORMATS, pcm_to_encoded
-from .channel_routing import choose_bridge_format, resolve_session_voice
+from .channel_routing import (
+    choose_bridge_format,
+    convert_to_feishu_opus,
+    resolve_session_voice,
+    validate_bridge_response,
+)
 from .config import Settings, load_settings
+from .feishu_client import FeishuClient
 from .qwen_client import QwenRealtimeTTSClient, QwenSynthesisConfig
 
 
@@ -109,15 +115,65 @@ async def tts(
         async with QwenRealtimeTTSClient(cfg, timeout_seconds=SETTINGS.ws_timeout_seconds) as client:
             pcm_audio = await client.synthesize(body.text, body.voice_prompt)
 
+        # 1. Validate TTS output
+        is_valid, reason = validate_bridge_response("audio/wav", pcm_audio)
+        if not is_valid:
+            logger.warning(
+                "TTS validation failed, falling back to text",
+                extra={"channel": channel, "reason": reason}
+            )
+            return Response(
+                content='{"fallback_to_text": true, "reason": "invalid_audio"}',
+                media_type="application/json"
+            )
+
+        # 2. Convert or Encode
         encoded_audio = await pcm_to_encoded(
             pcm_audio,
             sample_rate=cfg.sample_rate,
             channels=1,
             output_format=effective_format,
         )
-        media_type = media_type_for(effective_format)
-        output_size = len(encoded_audio)
 
+        media_type = media_type_for(effective_format)
+        
+        # 3. Handle Feishu Pipeline
+        if channel == "feishu":
+            try:
+                # Convert to Opus specifically for Feishu bubble
+                opus_path = convert_to_feishu_opus(encoded_audio, effective_format)
+                
+                # Upload to Feishu
+                fs_client = FeishuClient(SETTINGS.feishu_app_id, SETTINGS.feishu_app_secret)
+                file_key = await fs_client.upload_audio(str(opus_path))
+                
+                logger.info(
+                    "Feishu voice bubble ready",
+                    extra={
+                        "channel": channel,
+                        "tts_engine": body.tts_engine,
+                        "input_format": body.format,
+                        "output_format": "opus",
+                        "audio_size": output_size,
+                        "upload_status": "success",
+                        "file_key_presence": True,
+                        "file_key": file_key,
+                        "final_msg_type": "audio"
+                    }
+                )
+                return Response(
+                    content=f'{{"msg_type": "audio", "content": {{"file_key": "{file_key}"}}}}',
+                    media_type="application/json"
+                )
+            except Exception as e:
+                logger.error(f"Feishu pipeline failed: {e}", exc_info=True)
+                return Response(
+                    content='{"fallback_to_text": true, "reason": "feishu_upload_failed"}',
+                    media_type="application/json"
+                )
+
+        # 4. Standard binary response for other channels (like Telegram)
+        output_size = len(encoded_audio)
         logger.info(
             "TTS response ready",
             extra={
@@ -129,14 +185,24 @@ async def tts(
                 "requested_format": body.format,
                 "effective_format": effective_format,
                 "audio_bytes": output_size,
+                "upload_status": "not_required",
+                "file_key_presence": False,
+                "final_msg_type": "binary",
                 "voice_note_flag": bool(body.audio_as_voice) or bool(body.ptt),
                 "voice_flags": {"audio_as_voice": body.audio_as_voice, "ptt": body.ptt},
             },
         )
         return Response(content=encoded_audio, media_type=media_type)
+
     except TimeoutError as exc:
         logger.exception("TTS timeout", extra={"channel": channel, "tts_path": "qwen_bridge"})
-        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=str(exc)) from exc
+        return Response(
+            content='{"fallback_to_text": true, "reason": "timeout"}',
+            media_type="application/json"
+        )
     except Exception as exc:
         logger.exception("TTS synthesis failed", extra={"channel": channel, "tts_path": "qwen_bridge"})
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="TTS synthesis failed") from exc
+        return Response(
+            content='{"fallback_to_text": true, "reason": "synthesis_failed"}',
+            media_type="application/json"
+        )

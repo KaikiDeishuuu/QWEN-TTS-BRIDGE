@@ -179,7 +179,7 @@ def convert_to_feishu_opus(audio_bytes: bytes, input_format: str, output_dir: st
         "-c:a",
         "libopus",
         "-b:a",
-        "24k",
+        "32k",
         str(out),
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
