@@ -33,7 +33,7 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(choose_bridge_format("telegram"), "ogg")
 
     def test_feishu_default_format(self):
-        self.assertEqual(choose_bridge_format("feishu"), "mp3")
+        self.assertEqual(choose_bridge_format("feishu"), "ogg")
 
     def test_validate_audio_rejects_json(self):
         ok, reason = validate_bridge_response("application/json", b'{"detail":"nope"}')

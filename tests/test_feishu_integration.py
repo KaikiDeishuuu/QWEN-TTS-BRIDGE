@@ -1,50 +1,66 @@
 import asyncio
+import os
 import json
-import httpx
 
-async def test_feishu_pipeline():
+import httpx
+import pytest
+from dotenv import dotenv_values
+
+
+RUN_IT = os.getenv("RUN_INTEGRATION_TESTS") == "1"
+
+
+@pytest.mark.skipif(not RUN_IT, reason="Set RUN_INTEGRATION_TESTS=1 to run live bridge integration tests")
+def test_feishu_pipeline():
+    asyncio.run(_run_feishu_pipeline())
+
+
+async def _run_feishu_pipeline():
     url = "http://127.0.0.1:5200/tts"
+    cfg = dotenv_values(".env")
+    token = cfg.get("INTERNAL_TTS_TOKEN") or ""
+    if not token:
+        pytest.skip("INTERNAL_TTS_TOKEN missing in .env")
+
     headers = {
-        "Authorization": "Bearer test-token-123",
-        "Content-Type": "application/json"
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
     }
-    
-    # Test case 1: Feishu channel (should trigger upload attempt)
-    # Since we don't have real app_id/app_secret in .env, this should trigger a fallback-to-text or error
+
+    # Test case 1: Feishu channel (should return upload JSON envelope)
     payload = {
         "text": "Hello Feishu! ❤️",
         "channel": "feishu",
-        "format": "wav"
+        "format": "wav",
     }
-    
-    print("Testing Feishu pipeline (expected fallback if keys missing)...")
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(url, headers=headers, json=payload)
-            print(f"Status: {resp.status_code}")
-            print(f"Response: {resp.text}")
-    except Exception as e:
-        print(f"Error: {e}")
+
+    print("Testing Feishu pipeline...")
+    async with httpx.AsyncClient(timeout=90.0) as client:
+        resp = await client.post(url, headers=headers, json=payload)
+        print(f"Status: {resp.status_code}")
+        print(f"Response: {resp.text}")
+        assert resp.status_code == 200
+        assert "application/json" in (resp.headers.get("content-type") or "")
+        data = resp.json()
+        assert data.get("msg_type") == "audio"
 
     # Test case 2: Telegram channel (should return binary audio)
     payload = {
         "text": "Hello Telegram! 😊",
         "channel": "telegram",
-        "format": "wav"
+        "format": "wav",
     }
-    
-    print("\nTesting Telegram pipeline (expected binary ogg)...")
-    try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(url, headers=headers, json=payload)
-            print(f"Status: {resp.status_code}")
-            print(f"Content-type: {resp.headers.get('content-type')}")
-            if "audio" in resp.headers.get("content-type", ""):
-                print(f"Received binary audio, size: {len(resp.content)} bytes")
-            else:
-                print(f"Response: {resp.text}")
-    except Exception as e:
-        print(f"Error: {e}")
+
+    print("\nTesting Telegram pipeline...")
+    async with httpx.AsyncClient(timeout=90.0) as client:
+        resp = await client.post(url, headers=headers, json=payload)
+        print(f"Status: {resp.status_code}")
+        print(f"Content-type: {resp.headers.get('content-type')}")
+        print(f"Size: {len(resp.content)}")
+        assert resp.status_code == 200
+        assert "audio/" in (resp.headers.get("content-type") or "")
+        assert len(resp.content) > 1000
+
 
 if __name__ == "__main__":
-    asyncio.run(test_feishu_pipeline())
+    asyncio.run(_run_feishu_pipeline())
