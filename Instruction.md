@@ -1,154 +1,176 @@
 # OpenClaw TTS Bridge: Integration & Runtime Instructions
 
-This document provides the technical specification and operational policies for the **Qwen TTS Bridge**, enabling OpenClaw to deliver high-quality, channel-aware voice responses.
+This document is the authoritative reference for **OpenClaw** operators and integrators. It covers the API contract, decision policy, fallback rules, monitoring, and security requirements.
 
 ---
 
 ## 1. Architecture Overview
 
-- **Orchestrator**: OpenClaw (Gemini for reasoning).
-- **Service**: TTS Bridge (FastAPI).
-- **Upstream**: Qwen3 Realtime TTS (WebSocket).
-- **Channel Delivery**: 
-  - **Telegram**: Bridge returns binary OGG/Opus; OpenClaw sends `sendVoice`.
-  - **Feishu**: Bridge converts to Opus, uploads to Feishu API, and returns a `file_key` JSON; OpenClaw sends `msg_type: "audio"`.
+```
+User (Telegram / Feishu)
+  └── OpenClaw (Gemini reasoning)
+        └── POST /tts  →  TTS Bridge (FastAPI)
+              └── Qwen3 Realtime TTS (WebSocket)
+                    └── PCM → FFmpeg → OGG / MP3 / WAV
+                          └── Feishu: upload → file_key → msg_type: audio
+                          └── Telegram: binary stream → sendVoice
+```
 
 ---
 
-## 2. API Specification
+## 2. API Reference
 
 ### POST `/tts`
-- **Auth**: `Authorization: Bearer <INTERNAL_TTS_TOKEN>`
-- **Request Body**:
+
+**Auth**: `Authorization: Bearer <INTERNAL_TTS_TOKEN>`
+
+**Request body**:
 ```json
 {
-  "text": "String (1-5000 chars)",
+  "text": "string (1–5000 chars)",
   "channel": "telegram | feishu | other",
-  "voice_profile": "companion | playful | professional | neutral", // Optional override
-  "format": "wav | mp3 | ogg", // Optional, bridge will auto-override based on channel
+  "voice_profile": "companion | playful | professional | neutral",
+  "format": "wav | mp3 | ogg",
   "tts_engine": "qwen"
 }
 ```
 
-### Responses
-1. **Binary (Telegram/Standard)**:
-   - Returns binary audio stream.
-   - Headers: `Content-Type: audio/ogg` (Telegram) or `audio/wav`.
+**Response variants**:
 
-2. **Feishu JSON (Success)**:
-```json
-{
-  "msg_type": "audio",
-  "content": {
-    "file_key": "vabc_123..."
-  }
-}
-```
+| Scenario | Content-Type | Body |
+|---|---|---|
+| Telegram / other (success) | `audio/ogg` or `audio/wav` | Binary audio bytes |
+| Feishu (success) | `application/json` | `{"msg_type":"audio","content":{"file_key":"..."}}` |
+| Any failure / fallback | `application/json` | `{"fallback_to_text":true,"reason":"..."}` |
 
-3. **Fallback JSON (Error/Threshold)**:
-```json
-{
-  "fallback_to_text": true,
-  "reason": "invalid_audio | feishu_upload_failed | synthesis_failed"
-}
-```
+**Response header**: `X-Request-Id: <uuid>` — always present; use for log correlation.
 
----
+**Reason codes** (fallback responses):
 
-## 3. Intelligence Features
-
-### 3.1 Voice Personality
-The bridge automatically detects **intent** from text to select the best voice profile:
-- **Companion**: Triggered by emojis (❤️, 😊), "love", "miss you". Uses **Chelsie** (warm).
-- **Playful**: Triggered by greetings, "haha", "yay". Uses **Ethan** (cheerful).
-- **Professional**: Triggered by technical keywords (error, sudo, log). Uses **Serena** (calm).
-- **Neutral**: Default for standard information. Uses **Cherry**.
-
-### 3.2 Channel Routing
-- **Telegram Override**: Forces `ogg` format for waveform support.
-- **Feishu Override**: Forces `ogg` at **32kbps** and triggers the cloud upload pipeline.
+| Code | Meaning |
+|---|---|
+| `timeout` | Qwen WebSocket timeout |
+| `synthesis_failed` | Qwen API internal error |
+| `invalid_audio` | PCM output empty or too small |
+| `encoding_timeout` | FFmpeg exceeded time limit |
+| `encoding_failed` | FFmpeg error |
+| `feishu_upload_failed` | Feishu API error (after retries) |
+| `internal_error` | Unhandled server error |
 
 ---
 
-## 4. Operational Requirements
+## 3. Voice Personality
 
-### Environment Variables (.env)
-- `DASHSCOPE_API_KEY`: Required for Qwen API.
-- `INTERNAL_TTS_TOKEN`: Shared secret with OpenClaw.
-- `FEISHU_APP_ID` / `FEISHU_APP_SECRET`: Required for Feishu voice bubbles.
-- `TTS_HOST`: Set to `127.0.0.1` for local-only security.
+Auto-selected by text intent; can be overridden via `voice_profile` field or `[[tts:voice=xxx]]` tag.
 
-### Dependencies
-- **System**: `ffmpeg` must be installed for Opus conversion (Feishu/TG bubbles).
-- **Python**: `pip install httpx fastapi uvicorn pydantic-settings websockets`.
+| Profile | Trigger | Qwen Voice |
+|---|---|---|
+| `companion` | ❤️ 😊 love miss you | Chelsie |
+| `playful` | hi hello haha yay | Ethan |
+| `professional` | error log sudo traceback | Serena |
+| `neutral` | everything else | Cherry / Maia |
 
-### Service Management
-- Managed via systemd: `systemctl restart tts-bridge`.
-- Logs: `journalctl -u tts-bridge -f`.
+---
+
+## 4. Environment Variables
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `DASHSCOPE_API_KEY` | — | ✅ | Qwen API key |
+| `INTERNAL_TTS_TOKEN` | — | ✅ | Shared Bearer token |
+| `FEISHU_APP_ID` | `""` | Feishu only | Feishu app credentials |
+| `FEISHU_APP_SECRET` | `""` | Feishu only | Feishu app credentials |
+| `TTS_HOST` | `127.0.0.1` | — | Bind interface |
+| `TTS_PORT` | `5200` | — | Bind port |
+| `TTS_VOICE` | `Maia` | — | Default voice fallback |
+| `WS_TIMEOUT_SECONDS` | `45` | — | Qwen WebSocket timeout |
+| `MAX_CONCURRENT_REQUESTS` | `8` | — | Semaphore cap |
+| `FEISHU_UPLOAD_TIMEOUT` | `20` | — | Feishu upload HTTP timeout |
+| `MIN_PCM_BYTES` | `4800` | — | Min valid PCM size (~0.1 s) |
+| `FFMPEG_TIMEOUT` | `30` | — | FFmpeg subprocess timeout |
 
 ---
 
 ## 5. Decision & Fallback Policy
 
-### 5.1 Voice vs Text Decision
-OpenClaw should actively use voice for **Short & Expressive** messages but **Force Text** for information-dense or technical content.
+### 5.1 Voice vs Text
 
-- **Prefer Voice**: Message is `< 160` characters AND `< 2` sentences AND contains expressive intent/emoji.
-- **Force Text-Only**: If message contains any of the following:
-  - Fenced code blocks (```)
-  - Shell/Terminal commands (`sudo`, `pip`, `apt`, `kubectl`, etc.)
-  - Logs or traces (`traceback`, `ERROR`, timestamps)
-  - Structured data (JSON, YAML, Markdown Tables)
-  - Long academic or highly explanatory blocks (> 400 chars)
+- **Prefer voice**: `< 160` chars AND `≤ 2` sentences AND expressive markers (emoji / greetings / emotional words).
+- **Force text**: Any fenced code, shell commands (`sudo`, `pip`, `apt`), traces (`traceback`, `ERROR`), JSON/YAML, tables, or `> 400` chars.
 
-### 5.2 Failure & Fallback
-- **Safety First**: If the Bridge returns a JSON with `fallback_to_text: true`, OpenClaw **must** deliver the Gemini text response.
-- **Telegram Fallback**: If `sendVoice` fails with `VOICE_MESSAGES_FORBIDDEN` (e.g. user settings or bot permissions), the orchestrator SHOULD automatically retry with `sendAudio`.
-- **Binary Check**: If a standard response is binary but `< 1KB`, treat it as a failure and fallback to text.
-- **Timeout**: Enforce a strict timeout of `3.5s` for TTS calls to avoid blocking the user experience.
+### 5.2 Failure Fallback
+
+- **`fallback_to_text: true`**: OpenClaw **must** send the Gemini text reply; do not write audio file.
+- **Telegram `VOICE_MESSAGES_FORBIDDEN`**: retry with `sendAudio`, then `sendDocument`.
+- **Binary `< 512` bytes**: treat as failure.
+- **`encoding_timeout` / `encoding_failed`**: do not retry; go to text.
 
 ---
 
-## 6. Operational Checklist
-- [ ] `GET /health` returns `{"status": "ok"}`.
-- [ ] `ffmpeg -version` is successful (required for Opus conversion).
-- [ ] `INTERNAL_TTS_TOKEN` is synced between OpenClaw and Bridge.
-- [ ] `FEISHU_APP_ID/SECRET` configured for native bubbles.
+## 6. OpenClaw Integration Contract
+
+> [!IMPORTANT]
+> These checks are **mandatory** on the OpenClaw side to prevent 0-byte file issues.
+
+```python
+response = await call_tts_bridge(text=reply, channel=channel)
+
+# Guard 1: content-type check
+if "application/json" in response.headers.get("content-type", ""):
+    payload = response.json()
+    if payload.get("fallback_to_text"):
+        return await send_text(chat_id, reply_text)
+    if payload.get("msg_type") == "audio":
+        # Feishu native bubble
+        return await feishu_send_audio(chat_id, payload["content"]["file_key"])
+
+# Guard 2: size check for binary responses
+if len(response.content) < 512:
+    return await send_text(chat_id, reply_text)
+
+# Normal binary audio (Telegram, etc.)
+with open(tmp_path, "wb") as f:
+    f.write(response.content)
+```
 
 ---
 
-## 7. Bug Fix Notes (2026-03-16)
+## 7. Monitoring & Alerting
 
-### Fixed issues
+Every successful `/tts` call emits a structured log with these fields:
 
-1. **Feishu credentials were not loaded into runtime settings**
-   - Symptom: Feishu upload path always failed even when `.env` contained valid `FEISHU_APP_ID/FEISHU_APP_SECRET`.
-   - Fix: load both values in `tts_bridge/config.py` and pass them into the live settings object.
+```
+request_id, channel, effective_format, audio_bytes,
+final_msg_type, latency_ms, voice_profile, tts_engine
+```
 
-2. **Feishu upload used the wrong file type for native voice bubbles**
-   - Symptom: `im/v1/files` returned `400 Bad Request` / `Invalid request param`.
-   - Root cause: Feishu native voice upload expects `file_type=opus` (not generic `audio`) and needs `duration` metadata.
-   - Fix: upload as `opus`, probe duration with `ffprobe`, and include `duration` in the multipart form.
+Fallback/error calls emit: `request_id, channel, reason`
 
-3. **Server crashed after successful Feishu upload**
-   - Symptom: upload succeeded and returned a `file_key`, but `/tts` still fell back because of `UnboundLocalError: output_size`.
-   - Fix: define `output_size = len(encoded_audio)` before the Feishu branch so logging does not reference an uninitialized variable.
+**Recommended alert thresholds**:
 
-### Safe deployment reminders
+| Metric | Warning | Critical |
+|---|---|---|
+| `latency_ms` | > 8 000 ms | > 15 000 ms |
+| `fallback_to_text` rate | > 5% | > 20% |
+| `synthesis_failed` count | > 3/min | > 10/min |
+| `feishu_upload_failed` count | > 2/min | > 5/min |
 
-- Do **not** commit `.env`, API keys, bearer tokens, or uploaded media.
-- When validating Feishu audio:
-  1. confirm `/health` is `ok`
-  2. confirm `INTERNAL_TTS_TOKEN` is synchronized
-  3. verify `FEISHU_APP_ID/SECRET` are loaded by the service
-  4. test `/tts` with `channel=feishu`
-  5. confirm returned payload shape is:
-     ```json
-     {"msg_type":"audio","content":{"file_key":"..."}}
-     ```
-- If synthesis succeeds but Feishu upload fails, inspect:
-  - `journalctl -u tts-bridge -f`
-  - ffmpeg/ffprobe availability
-  - Feishu credential validity
-  - upload parameter shape (`opus` + `duration`)
+**Query example** (journald):
+```bash
+# See all fallbacks in last hour
+sudo journalctl -u tts-bridge --since "1 hour ago" | grep fallback_to_text
 
+# Tail latency by request-id
+sudo journalctl -u tts-bridge -f | grep -E "latency_ms|request_id"
+```
+
+---
+
+## 8. Operational Checklist
+
+- [ ] `GET /health` → `{"status": "ok"}`
+- [ ] `ffmpeg -version` succeeds (Opus conversion required)
+- [ ] `INTERNAL_TTS_TOKEN` matches between OpenClaw and Bridge
+- [ ] `FEISHU_APP_ID` / `FEISHU_APP_SECRET` set for Feishu bubbles
+- [ ] `TTS_HOST=127.0.0.1` (internal only)
+- [ ] systemd: `Restart=always`, `RestartSec=5`
