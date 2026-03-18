@@ -5,7 +5,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, status
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
@@ -43,6 +43,20 @@ def _estimate_duration_seconds(pcm_audio: bytes, sample_rate: int, channels: int
     if frame_size <= 0 or sample_rate <= 0:
         return 0.0
     return len(pcm_audio) / float(sample_rate * frame_size)
+
+
+def _validate_encoded_audio(media_type: str, encoded_audio: bytes, *, min_audio_bytes: int = 512) -> tuple[bool, str]:
+    if len(encoded_audio) < min_audio_bytes:
+        return False, "audio_too_small"
+
+    if media_type == "audio/ogg" and not encoded_audio.startswith(b"OggS"):
+        return False, "invalid_ogg_header"
+    if media_type == "audio/mpeg" and not (encoded_audio.startswith(b"ID3") or encoded_audio.startswith(b"\xff\xfb") or encoded_audio.startswith(b"\xff\xf3") or encoded_audio.startswith(b"\xff\xf2")):
+        return False, "invalid_mp3_header"
+    if media_type == "audio/wav" and not (encoded_audio.startswith(b"RIFF") and encoded_audio[8:12] == b"WAVE"):
+        return False, "invalid_wav_header"
+
+    return True, "ok"
 
 
 def _fallback_response(reason: str, request_id: str, *, plan: DeliveryPlan | None = None, status_code: int = 200) -> Response:
@@ -146,7 +160,7 @@ async def tts(
         _log_delivery_state("policy_resolved", request_id, plan=plan.to_log_dict())
     except DeliveryPlanError as exc:
         logger.error("delivery_planning_rejected", extra={"request_id": request_id, "error_type": type(exc).__name__, "reason": str(exc)})
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        return _fallback_response("capability_blocked", request_id, status_code=status.HTTP_409_CONFLICT)
     except Exception as exc:
         logger.exception("delivery_planning_failed", extra={"request_id": request_id, "error_type": type(exc).__name__})
         return _fallback_response("planning_failed", request_id)
@@ -201,6 +215,14 @@ async def tts(
                 ffmpeg_timeout=_SETTINGS.ffmpeg_timeout,
             )
             media_type = media_type_for(plan.audio_format)
+            ok_audio, audio_reason = _validate_encoded_audio(media_type, encoded_audio)
+            if not ok_audio:
+                logger.error(
+                    "invalid_encoded_audio",
+                    extra={"request_id": request_id, "audio_bytes": len(encoded_audio), "media_type": media_type, "reason_code": audio_reason},
+                )
+                return _fallback_response("invalid_audio", request_id, plan=plan)
+
             latency_ms = int((time.monotonic() - t_start) * 1000)
             _log_delivery_state(
                 "transport_selected",

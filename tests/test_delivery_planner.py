@@ -125,6 +125,29 @@ class TestDeliveryPlanner(unittest.TestCase):
         self.assertEqual(snap["bridge_url"], "http://bridge")
         self.assertTrue(snap["native_allowed"])
 
+    def test_replay_determinism_same_normalized_request(self):
+        get_provider_registry().register_bridge("http://test", healthy=True)
+        plan1 = decide_audio_delivery(
+            request_id="replay_1",
+            channel="Feishu",
+            sender_type="bot",
+            text_length=120,
+        )
+        plan2 = decide_audio_delivery(
+            request_id="replay_2",
+            channel="feishu",
+            sender_type="bot",
+            text_length=120,
+        )
+
+        self.assertEqual(plan1.channel, plan2.channel)
+        self.assertEqual(plan1.sender_type, plan2.sender_type)
+        self.assertEqual(plan1.requested_type, plan2.requested_type)
+        self.assertEqual(plan1.resolved_type, plan2.resolved_type)
+        self.assertEqual(plan1.tts_provider, plan2.tts_provider)
+        self.assertEqual(plan1.fallback_chain, plan2.fallback_chain)
+        self.assertEqual(plan1.reason_codes, plan2.reason_codes)
+
 
 if __name__ == "__main__":
     unittest.main()
