@@ -6,7 +6,7 @@ from dataclasses import dataclass
 class Settings:
     dashscope_api_key: str
     tts_model: str = "qwen3-tts-instruct-flash-realtime"
-    tts_host: str = "127.0.0.1"       # Safe default: local-only
+    tts_host: str = "127.0.0.1"
     tts_port: int = 5200
     tts_voice: str = "Maia"
     internal_tts_token: str = ""
@@ -14,11 +14,11 @@ class Settings:
     ws_timeout_seconds: float = 45.0
     feishu_app_id: str = ""
     feishu_app_secret: str = ""
-    # Production tuning parameters
-    max_concurrent_requests: int = 8   # Max parallel TTS synthesis requests
-    feishu_upload_timeout: float = 20.0  # Timeout for Feishu file upload
-    min_pcm_bytes: int = 4800          # ~0.1s of 24kHz/16-bit mono audio; reject if smaller
-    ffmpeg_timeout: float = 30.0       # Max time for a single ffmpeg conversion
+    max_concurrent_requests: int = 8
+    feishu_upload_timeout: float = 20.0
+    min_pcm_bytes: int = 4800
+    ffmpeg_timeout: float = 30.0
+    enable_native_fallback: bool = False
 
 
 def load_settings() -> Settings:
@@ -45,4 +45,5 @@ def load_settings() -> Settings:
         feishu_upload_timeout=float(os.getenv("FEISHU_UPLOAD_TIMEOUT", "20")),
         min_pcm_bytes=int(os.getenv("MIN_PCM_BYTES", "4800")),
         ffmpeg_timeout=float(os.getenv("FFMPEG_TIMEOUT", "30")),
+        enable_native_fallback=os.getenv("ENABLE_NATIVE_FALLBACK", "false").strip().lower() in {"1", "true", "yes", "on"},
     )

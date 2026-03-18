@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+from .channel_caps import get_capabilities
 from .voice_personality import (
     choose_profile_for_text,
     extract_voice_override,
@@ -100,11 +101,9 @@ def should_use_voice(
     if cfg.mode == "inbound":
         ok = inbound_voice_hint and expressive
         return ok, "inbound_voice_hint" if ok else "not_inbound_or_not_expressive"
-
     if cfg.mode == "tagged":
         ok = expressive and channel in {"telegram", "feishu"}
         return ok, "expressive_short_proactive" if ok else "not_expressive"
-
     return False, "unsupported_mode"
 
 
@@ -138,7 +137,69 @@ def resolve_session_voice(
     }
 
 
-# --- Legacy Routing Logic Removed: Handled by delivery_planner.py ---
+def choose_bridge_format(channel: str) -> str:
+    return get_capabilities(channel).preferred_format
+
+
+def validate_bridge_response(content_type: str | None, body: bytes, *, min_audio_bytes: int = 1024) -> tuple[bool, str]:
+    normalized = (content_type or "").lower()
+    if normalized.startswith("application/json"):
+        return False, "bridge_returned_json"
+    if not normalized.startswith("audio/"):
+        return False, "unexpected_content_type"
+    if len(body) < min_audio_bytes:
+        return False, "audio_too_small"
+    return True, "ok"
+
+
+def build_send_plan(
+    channel: str,
+    use_voice: bool,
+    *,
+    duration_s: float | None = None,
+    mime_type: str | None = None,
+) -> dict[str, object]:
+    normalized = (channel or "other").lower()
+    if normalized == "feishu":
+        return {
+            "channel": normalized,
+            "msg_type": "audio",
+            "final_send_mode": "audio" if use_voice else "text",
+            "requires_bot_sender": True,
+            "transport_api": "im/v1/files + im/v1/messages",
+        }
+
+    if normalized == "telegram":
+        if not use_voice:
+            return {
+                "channel": normalized,
+                "final_send_mode": "text",
+                "transport_api": "sendMessage",
+            }
+        if duration_s is not None and duration_s > 300:
+            final_mode = "audio"
+            api = "sendAudio"
+        elif mime_type and not mime_type.startswith("audio/"):
+            final_mode = "document"
+            api = "sendDocument"
+        else:
+            final_mode = "voice"
+            api = "sendVoice"
+        return {
+            "channel": normalized,
+            "asVoice": final_mode == "voice",
+            "ptt": final_mode == "voice",
+            "audio_as_voice": final_mode == "voice",
+            "final_send_mode": final_mode,
+            "transport_api": api,
+        }
+
+    return {
+        "channel": normalized,
+        "final_send_mode": "audio" if use_voice else "text",
+        "transport_api": "sendFile" if use_voice else "sendMessage",
+    }
+
 
 def log_tts_event(
     request_id: str,
@@ -147,7 +208,6 @@ def log_tts_event(
     audio_size: int | None = None,
     latency_ms: int | None = None,
 ) -> None:
-    """Unified logger for the new DeliveryPlan architecture."""
     logger.info(
         "tts_delivery_event",
         extra={
@@ -164,7 +224,39 @@ def parse_bridge_error_body(body: bytes) -> str | None:
     try:
         parsed = json.loads(body.decode("utf-8"))
         if isinstance(parsed, dict):
-            return str(parsed.get("detail") or parsed.get("error") or "json_error")
+            return str(parsed.get("detail") or parsed.get("error") or parsed.get("reason") or "json_error")
     except Exception:
         return None
     return None
+
+
+def convert_to_feishu_opus(audio_bytes: bytes, source_format: str) -> Path:
+    suffix = "." + source_format.strip(".").lower()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as src:
+        src.write(audio_bytes)
+        src_path = Path(src.name)
+
+    dst_path = src_path.with_suffix(".opus")
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-i",
+        str(src_path),
+        "-ac",
+        "1",
+        "-ar",
+        "48000",
+        "-c:a",
+        "libopus",
+        "-b:a",
+        "32k",
+        str(dst_path),
+    ]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=30)
+        return dst_path
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(f"ffmpeg feishu opus conversion failed: {exc.stderr}") from exc
