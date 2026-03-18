@@ -63,5 +63,16 @@ class RoutingTests(unittest.TestCase):
         self.assertEqual(data["voice_profile"], "professional")
 
 
+    def test_telegram_long_audio_goes_send_audio(self):
+        tg = build_send_plan("telegram", True, duration_s=301, mime_type="audio/ogg")
+        self.assertEqual(tg["final_send_mode"], "audio")
+        self.assertEqual(tg["transport_api"], "sendAudio")
+
+    def test_telegram_non_audio_payload_goes_document(self):
+        tg = build_send_plan("telegram", True, mime_type="application/octet-stream")
+        self.assertEqual(tg["final_send_mode"], "document")
+        self.assertEqual(tg["transport_api"], "sendDocument")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,4 +1,5 @@
 import unittest
+from types import MappingProxyType
 
 from tts_bridge.delivery_planner import (
     DeliveryPlanError,
@@ -77,6 +78,7 @@ class TestDeliveryPlanner(unittest.TestCase):
 
         self.assertEqual(plan.tts_provider, "native")
         self.assertIn("bridge_unhealthy_native_fallback", plan.reason_codes)
+        self.assertEqual(plan.fallback_chain[0], "voice_bubble")
 
     def test_no_provider_fallback(self):
         reg = ProviderRegistry()
@@ -93,6 +95,26 @@ class TestDeliveryPlanner(unittest.TestCase):
         self.assertEqual(plan.status, "fallback_text")
         self.assertEqual(plan.resolved_type, "text")
         self.assertIn("no_tts_provider", plan.reason_codes)
+
+
+    def test_delivery_plan_is_deeply_immutable(self):
+        get_provider_registry().register_bridge("http://test", healthy=True)
+        plan = decide_audio_delivery(
+            request_id="test_immutable",
+            channel="telegram",
+            sender_type="bot",
+            text_length=50,
+        )
+
+        self.assertIsInstance(plan.fallback_chain, tuple)
+        self.assertIsInstance(plan.reason_codes, tuple)
+        self.assertIsInstance(plan.constraints, MappingProxyType)
+
+        with self.assertRaises(AttributeError):
+            plan.fallback_chain.append("text")  # type: ignore[attr-defined]
+
+        with self.assertRaises(TypeError):
+            plan.constraints["new_key"] = True  # type: ignore[index]
 
     def test_provider_registry_snapshot(self):
         reg = ProviderRegistry()
