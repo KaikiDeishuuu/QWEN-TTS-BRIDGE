@@ -15,6 +15,7 @@ Design principles:
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -97,49 +98,73 @@ class DeliveryPlan:
 
 class ProviderRegistry:
     """
-    Tracks TTS provider availability.
+    Tracks TTS provider availability with a stateful circuit breaker.
 
-    Priority: bridge (external) > native > none.
-    Native can ONLY be selected when:
-      - Bridge is explicitly unhealthy, AND
-      - native_allowed=True in the registry.
-
-    Agent-level overrides are NOT honoured here.
+    States:
+    - CLOSED: Bridge is healthy, all requests go to bridge.
+    - OPEN: Bridge is failing, all requests go to native fallback.
+    - HALF_OPEN: Testing if bridge has recovered (1 request allowed).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, failure_threshold: int = 3, recovery_timeout_s: float = 60.0) -> None:
         self._bridge_url: str | None = None
-        self._bridge_healthy: bool = False
         self._native_allowed: bool = False
+        
+        # Circuit breaker state
+        self._failure_count = 0
+        self._failure_threshold = failure_threshold
+        self._recovery_timeout_s = recovery_timeout_s
+        self._last_failure_time: float = 0.0
+        self._is_open = False
 
-    def register_bridge(self, url: str, healthy: bool) -> None:
+    def register_bridge(self, url: str, healthy: bool = True) -> None:
         self._bridge_url = url
-        self._bridge_healthy = healthy
-        logger.info(
-            "TTS bridge registered",
-            extra={"url": url, "healthy": healthy},
-        )
+        if healthy:
+            self.report_success()
+        else:
+            self.report_failure()
 
     def set_native_allowed(self, allowed: bool) -> None:
         self._native_allowed = allowed
 
+    def report_success(self) -> None:
+        if self._is_open:
+            logger.info("Circuit breaker CLOSED (Bridge recovered)")
+        self._failure_count = 0
+        self._is_open = False
+
+    def report_failure(self) -> None:
+        self._failure_count += 1
+        self._last_failure_time = time.monotonic()
+        if self._failure_count >= self._failure_threshold and not self._is_open:
+            self._is_open = True
+            logger.error(
+                "Circuit breaker OPENED (Bridge failing)",
+                extra={"failure_count": self._failure_count, "url": self._bridge_url}
+            )
+
     def select_provider(self) -> tuple[TTSProvider, str | None]:
         """
         Returns (provider, bridge_url).
-        Bridge wins if healthy. Native only if bridge is not healthy and allowed.
+        Logic:
+        1. If CLOSED -> Bridge.
+        2. If OPEN:
+           - If recovery_timeout passed -> HALF_OPEN -> Bridge (one probe).
+           - Otherwise -> Native.
         """
-        if self._bridge_healthy and self._bridge_url:
+        now = time.monotonic()
+        
+        # Check for recovery (Half-Open probe)
+        if self._is_open and (now - self._last_failure_time) > self._recovery_timeout_s:
+            logger.info("Circuit breaker HALF-OPEN (Probing bridge recovery)")
             return "bridge", self._bridge_url
+
+        if not self._is_open and self._bridge_url:
+            return "bridge", self._bridge_url
+
         if self._native_allowed:
-            logger.warning(
-                "TTS bridge not healthy; falling back to native TTS",
-                extra={"bridge_url": self._bridge_url, "bridge_healthy": self._bridge_healthy},
-            )
             return "native", None
-        logger.error(
-            "No TTS provider available; bridge unhealthy and native not allowed",
-            extra={"bridge_url": self._bridge_url},
-        )
+            
         return "none", None
 
 

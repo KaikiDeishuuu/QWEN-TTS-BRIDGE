@@ -10,24 +10,21 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from .auth import auth_dependency, validate_bearer_token
-from .audio_utils import SUPPORTED_FORMATS, pcm_to_encoded
+from .audio_utils import pcm_to_encoded
 from .channel_routing import (
-    choose_bridge_format,
     convert_to_feishu_opus,
     resolve_session_voice,
-    validate_bridge_response,
 )
 from .config import Settings, load_settings
 from .feishu_client import FeishuClient
 from .qwen_client import QwenRealtimeTTSClient, QwenSynthesisConfig
-
+from .delivery_planner import decide_audio_delivery, get_provider_registry
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s %(message)s",
 )
 logger = logging.getLogger("tts_bridge")
-
 
 # ---------------------------------------------------------------------------
 # Request model
@@ -38,11 +35,9 @@ class TTSRequest(BaseModel):
     voice_prompt: str | None = Field(default=None, max_length=1000)
     format: str = Field(default="wav")
     channel: str | None = Field(default=None, max_length=64)
-    audio_as_voice: bool | None = Field(default=None)
-    ptt: bool | None = Field(default=None)
+    sender_type: str = Field(default="bot", max_length=16) # "bot" | "user"
     voice_profile: str | None = Field(default=None, max_length=64)
     tts_engine: str = Field(default="qwen", max_length=32)
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -54,14 +49,12 @@ def media_type_for(fmt: str) -> str:
         return mapping[fmt]
     raise ValueError(f"Unsupported format {fmt}")
 
-
 def _fallback_response(reason: str, request_id: str) -> Response:
     return Response(
         content=f'{{"fallback_to_text": true, "reason": "{reason}"}}',
         media_type="application/json",
         headers={"X-Request-Id": request_id},
     )
-
 
 # ---------------------------------------------------------------------------
 # App lifecycle
@@ -70,26 +63,26 @@ def _fallback_response(reason: str, request_id: str) -> Response:
 _SETTINGS: Settings
 _SEMAPHORE: asyncio.Semaphore
 
-
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     global _SETTINGS, _SEMAPHORE
     _SETTINGS = load_settings()
     _SEMAPHORE = asyncio.Semaphore(_SETTINGS.max_concurrent_requests)
+    
+    # Initialize provider registry
+    get_provider_registry().register_bridge(url="local", healthy=True)
+    get_provider_registry().set_native_allowed(allowed=False) # Only bridge for now
+    
     logger.info(
-        "TTS bridge started",
+        "TTS bridge started deterministic mode",
         extra={
             "model": _SETTINGS.tts_model,
-            "host": _SETTINGS.tts_host,
-            "port": _SETTINGS.tts_port,
             "max_concurrent": _SETTINGS.max_concurrent_requests,
         },
     )
     yield
 
-
 app = FastAPI(title="OpenClaw TTS Bridge", lifespan=lifespan)
-
 
 # ---------------------------------------------------------------------------
 # Endpoints
@@ -98,7 +91,6 @@ app = FastAPI(title="OpenClaw TTS Bridge", lifespan=lifespan)
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
-
 
 @app.post("/tts")
 async def tts(
@@ -111,18 +103,27 @@ async def tts(
     # --- Auth ---
     validate_bearer_token(authorization, _SETTINGS.internal_tts_token)
 
-    channel = (body.channel or "unknown").lower()
-    effective_format = choose_bridge_format(channel, body.format)
-
-    if effective_format not in SUPPORTED_FORMATS:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"format must be one of {sorted(SUPPORTED_FORMATS)}",
+    # --- 1. Deterministic Planning ---
+    try:
+        # Cast sender_type to the expected Literal for the planner
+        request_sender = body.sender_type.lower() if body.sender_type else "bot"
+        
+        plan = decide_audio_delivery(
+            request_id=request_id,
+            channel=body.channel or "other",
+            sender_type=request_sender, # type: ignore
+            text_length=len(body.text),
         )
+    except Exception as exc:
+        logger.error("Delivery planning failed", extra={"request_id": request_id, "error": str(exc)})
+        return _fallback_response("planning_failed", request_id)
 
-    # --- Voice resolution ---
+    if plan.status == "fallback_text":
+        return _fallback_response(plan.reason_codes[0], request_id)
+
+    # --- 2. Voice resolution ---
     voice_info = resolve_session_voice(
-        session_id=channel,
+        session_id=plan.channel,
         text=body.text,
         tts_engine=body.tts_engine,
     )
@@ -133,12 +134,8 @@ async def tts(
         "TTS request received",
         extra={
             "request_id": request_id,
-            "channel": channel,
+            "plan": plan.to_log_dict(),
             "voice_profile": body.voice_profile or voice_info["voice_profile"],
-            "tts_engine": body.tts_engine,
-            "requested_format": body.format,
-            "effective_format": effective_format,
-            "text_len": len(body.text),
         },
     )
 
@@ -149,114 +146,56 @@ async def tts(
         voice=final_voice,
     )
 
-    # --- Concurrency gate ---
+    # --- 3. Concurrency gate ---
     if _SEMAPHORE.locked():
-        logger.warning("Concurrency limit reached, queuing request", extra={"request_id": request_id})
+        logger.warning("Concurrency limit reached", extra={"request_id": request_id})
 
     try:
         async with _SEMAPHORE:
-            # ── 1. Synthesize ────────────────────────────────────────────
-            try:
-                async with QwenRealtimeTTSClient(cfg, timeout_seconds=_SETTINGS.ws_timeout_seconds) as client:
-                    pcm_audio = await client.synthesize(body.text, body.voice_prompt)
-            except TimeoutError:
-                logger.error("TTS synthesis timed out", extra={"request_id": request_id, "channel": channel})
-                return _fallback_response("timeout", request_id)
-            except Exception as exc:
-                logger.exception("TTS synthesis failed", extra={"request_id": request_id, "channel": channel})
-                return _fallback_response("synthesis_failed", request_id)
+            # --- 4. Synthesize ---
+            async with QwenRealtimeTTSClient(cfg, timeout_seconds=_SETTINGS.ws_timeout_seconds) as client:
+                pcm_audio = await client.synthesize(body.text, body.voice_prompt)
 
-            # ── 2. Validate PCM output ───────────────────────────────────
+            # --- 5. Validate & Encode ---
             if len(pcm_audio) < _SETTINGS.min_pcm_bytes:
-                logger.warning(
-                    "PCM output too small, rejecting",
-                    extra={"request_id": request_id, "pcm_bytes": len(pcm_audio), "min": _SETTINGS.min_pcm_bytes},
-                )
                 return _fallback_response("invalid_audio", request_id)
 
-            is_valid, reason = validate_bridge_response("audio/wav", pcm_audio)
-            if not is_valid:
-                logger.warning(
-                    "TTS validation failed",
-                    extra={"request_id": request_id, "channel": channel, "reason": reason},
-                )
-                return _fallback_response("invalid_audio", request_id)
+            encoded_audio = await pcm_to_encoded(
+                pcm_audio,
+                sample_rate=cfg.sample_rate,
+                channels=1,
+                output_format=plan.audio_format,
+                ffmpeg_timeout=_SETTINGS.ffmpeg_timeout,
+            )
 
-            # ── 3. Encode to target format ───────────────────────────────
-            try:
-                encoded_audio = await pcm_to_encoded(
-                    pcm_audio,
-                    sample_rate=cfg.sample_rate,
-                    channels=1,
-                    output_format=effective_format,
-                    ffmpeg_timeout=_SETTINGS.ffmpeg_timeout,
-                )
-            except asyncio.TimeoutError:
-                logger.error("FFmpeg encoding timed out", extra={"request_id": request_id})
-                return _fallback_response("encoding_timeout", request_id)
-            except RuntimeError as exc:
-                logger.error("FFmpeg encoding failed", extra={"request_id": request_id, "error": str(exc)})
-                return _fallback_response("encoding_failed", request_id)
-
-            output_size = len(encoded_audio)
-            media_type = media_type_for(effective_format)
             latency_ms = int((time.monotonic() - t_start) * 1000)
 
-            # ── 4. Feishu pipeline ───────────────────────────────────────
-            if channel == "feishu":
-                try:
-                    opus_path = convert_to_feishu_opus(encoded_audio, effective_format)
-                    fs_client = FeishuClient(
-                        _SETTINGS.feishu_app_id,
-                        _SETTINGS.feishu_app_secret,
-                        upload_timeout=_SETTINGS.feishu_upload_timeout,
-                    )
-                    file_key = await fs_client.upload_audio(str(opus_path))
+            # --- 6. Channel Specific Pipelines ---
+            if plan.channel == "feishu" and plan.resolved_type == "voice_bubble":
+                opus_path = convert_to_feishu_opus(encoded_audio, plan.audio_format)
+                fs_client = FeishuClient(
+                    _SETTINGS.feishu_app_id,
+                    _SETTINGS.feishu_app_secret,
+                )
+                file_key = await fs_client.upload_audio(str(opus_path))
 
-                    logger.info(
-                        "Feishu voice bubble ready",
-                        extra={
-                            "request_id": request_id,
-                            "channel": channel,
-                            "output_format": "opus",
-                            "audio_size": output_size,
-                            "upload_status": "success",
-                            "final_msg_type": "audio",
-                            "latency_ms": latency_ms,
-                        },
-                    )
-                    return Response(
-                        content=f'{{"msg_type": "audio", "content": {{"file_key": "{file_key}"}}}}',
-                        media_type="application/json",
-                        headers={"X-Request-Id": request_id},
-                    )
-                except Exception as exc:
-                    logger.error(
-                        "Feishu pipeline failed",
-                        extra={"request_id": request_id, "error": str(exc)},
-                        exc_info=True,
-                    )
-                    return _fallback_response("feishu_upload_failed", request_id)
+                return Response(
+                    content=f'{{"msg_type": "audio", "content": {{"file_key": "{file_key}"}}}}',
+                    media_type="application/json",
+                    headers={"X-Request-Id": request_id},
+                )
 
-            # ── 5. Standard binary response (Telegram / other) ───────────
-            logger.info(
-                "TTS response ready",
-                extra={
-                    "request_id": request_id,
-                    "channel": channel,
-                    "content_type": media_type,
-                    "effective_format": effective_format,
-                    "audio_bytes": output_size,
-                    "final_msg_type": "binary",
-                    "latency_ms": latency_ms,
-                },
-            )
+            # --- 7. Standard Binary Response ---
             return Response(
                 content=encoded_audio,
-                media_type=media_type,
-                headers={"X-Request-Id": request_id},
+                media_type=media_type_for(plan.audio_format),
+                headers={
+                    "X-Request-Id": request_id,
+                    "X-Resolved-Type": plan.resolved_type,
+                    "X-Latency-Ms": str(latency_ms),
+                },
             )
 
     except Exception as exc:
-        logger.exception("Unhandled error in /tts", extra={"request_id": request_id})
-        return _fallback_response("internal_error", request_id)
+        logger.exception("Final delivery failed", extra={"request_id": request_id})
+        return _fallback_response("delivery_failed", request_id)

@@ -138,119 +138,24 @@ def resolve_session_voice(
     }
 
 
-def choose_bridge_format(channel: str, requested_format: str | None = None) -> str:
-    if requested_format:
-        return requested_format.lower()
-    if channel == "telegram":
-        return "ogg"
-    if channel == "feishu":
-        return "ogg"
-    return "wav"
+# --- Legacy Routing Logic Removed: Handled by delivery_planner.py ---
 
-
-def validate_bridge_response(content_type: str | None, body: bytes, min_bytes: int = 1024) -> tuple[bool, str]:
-    if not body:
-        return False, "empty_audio"
-    ctype = (content_type or "").lower()
-    if "application/json" in ctype:
-        return False, "bridge_returned_json"
-    if len(body) < min_bytes:
-        return False, "audio_too_small"
-    if ctype and not ctype.startswith("audio/"):
-        return False, f"unexpected_content_type:{ctype}"
-    return True, "ok"
-
-
-def convert_to_feishu_opus(audio_bytes: bytes, input_format: str, output_dir: str | None = None) -> Path:
-    target_dir = Path(output_dir or tempfile.mkdtemp(prefix="feishu_opus_"))
-    target_dir.mkdir(parents=True, exist_ok=True)
-    src = target_dir / f"source.{input_format}"
-    out = target_dir / "voice.opus"
-    src.write_bytes(audio_bytes)
-
-    cmd = [
-        "ffmpeg",
-        "-y",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-i",
-        str(src),
-        "-c:a",
-        "libopus",
-        "-b:a",
-        "32k",
-        str(out),
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0 or not out.exists() or out.stat().st_size == 0:
-        raise RuntimeError(f"feishu_opus_conversion_failed: {result.stderr.strip()}")
-    logger.info(
-        "feishu_audio_converted",
-        extra={
-            "conversion_result": "ok",
-            "pre_conversion_format": input_format,
-            "converted_output_path": str(out),
-        },
-    )
-    return out
-
-
-def masked_file_key(file_key: str) -> str:
-    if len(file_key) <= 6:
-        return "***"
-    return f"{file_key[:3]}***{file_key[-3:]}"
-
-
-def build_send_plan(channel: str, use_voice: bool) -> dict[str, object]:
-    if not use_voice:
-        return {"final_send_mode": "text"}
-
-    if channel == "telegram":
-        return {
-            "final_send_mode": "telegram_voice_note",
-            "asVoice": True,
-            "ptt": True,
-            "audio_as_voice": True,
-            "voice_note_flag": True,
-        }
-
-    if channel == "feishu":
-        return {
-            "final_send_mode": "feishu_audio_bubble",
-            "msg_type": "audio",
-            "requires_file_upload": True,
-            "disallow_generic_file": True,
-        }
-
-    return {"final_send_mode": "audio_attachment"}
-
-
-def log_tts_decision(
+def log_tts_event(
+    request_id: str,
     channel: str,
-    decision: bool,
-    reason: str,
-    provider: str,
-    fmt: str | None,
-    size: int | None,
-    *,
-    voice_profile: str | None = None,
-    tts_engine: str = "qwen",
-    voice_flags: dict[str, bool] | None = None,
+    plan: dict,
+    audio_size: int | None = None,
+    latency_ms: int | None = None,
 ) -> None:
+    """Unified logger for the new DeliveryPlan architecture."""
     logger.info(
-        "tts_decision",
+        "tts_delivery_event",
         extra={
+            "request_id": request_id,
             "channel": channel,
-            "voice_profile": voice_profile,
-            "tts_engine": tts_engine,
-            "tts_decision": decision,
-            "tts_reason": reason,
-            "tts_provider": provider,
-            "requested_format": fmt,
-            "effective_format": fmt,
-            "audio_bytes": size,
-            "voice_flags": voice_flags or {},
+            "plan": plan,
+            "audio_bytes": audio_size,
+            "latency_ms": latency_ms,
         },
     )
 
