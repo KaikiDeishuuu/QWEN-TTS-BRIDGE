@@ -4,12 +4,6 @@ delivery_planner.py — Central audio delivery decision layer.
 ALL audio routing decisions flow through decide_audio_delivery().
 Downstream code MUST consume the returned DeliveryPlan and MUST NOT
 make independent routing decisions.
-
-Design principles:
-- Deterministic: given same inputs, always produces same plan.
-- Fail-fast: unsupported configurations raise DeliveryPlanError.
-- Observable: every plan carries a full audit trail (reason_codes).
-- Explicit: no implicit defaults, no magic fallbacks.
 """
 
 from __future__ import annotations
@@ -17,21 +11,18 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 from .channel_caps import (
     ChannelCapabilityError,
     MessageType,
     SenderType,
     assert_audio_allowed,
+    assert_message_type_allowed,
     get_capabilities,
 )
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Types
-# ---------------------------------------------------------------------------
 
 TTSProvider = Literal["bridge", "native", "none"]
 DeliveryStatus = Literal["ok", "fallback_text", "blocked"]
@@ -41,144 +32,148 @@ class DeliveryPlanError(Exception):
     """Raised when no valid delivery plan can be constructed."""
 
 
-# ---------------------------------------------------------------------------
-# Core plan structure
-# ---------------------------------------------------------------------------
-
-@dataclass
+@dataclass(frozen=True)
 class DeliveryPlan:
-    """
-    Immutable contract produced by decide_audio_delivery().
-    Every downstream component reads from this; nothing overrides it.
-    """
     request_id: str
     channel: str
-    sender_type: SenderType          # "bot" | "user"
-    tts_provider: TTSProvider        # "bridge" | "native" | "none"
-    bridge_url: str | None           # only set when tts_provider == "bridge"
-
-    # What we want vs what we'll actually send
+    sender_type: SenderType
     requested_type: MessageType
-    resolved_type: MessageType       # may differ from requested due to caps
-
-    # Delivery chain: ordered list of attempts before giving up
-    # e.g. ["voice_bubble", "audio_file", "text"]
+    resolved_type: MessageType
+    tts_provider: TTSProvider
+    bridge_url: str | None
     fallback_chain: list[MessageType] = field(default_factory=list)
-
-    # Audio encoding
-    audio_format: str = "ogg"         # as required by channel caps
+    constraints: dict[str, Any] = field(default_factory=dict)
+    audio_format: str = "ogg"
     require_opus: bool = True
-
-    # Observability
     reason_codes: list[str] = field(default_factory=list)
-    status: DeliveryStatus = "ok"     # "ok" | "fallback_text" | "blocked"
+    status: DeliveryStatus = "ok"
+
+    @property
+    def debug_reason_codes(self) -> list[str]:
+        return self.reason_codes
 
     def is_audio(self) -> bool:
-        return self.resolved_type in ("voice_bubble", "audio_file")
+        return self.resolved_type in ("voice_bubble", "audio_file", "document")
 
-    def to_log_dict(self) -> dict:
+    def to_log_dict(self) -> dict[str, Any]:
         return {
             "request_id": self.request_id,
             "channel": self.channel,
             "sender_type": self.sender_type,
-            "tts_provider": self.tts_provider,
             "requested_type": self.requested_type,
             "resolved_type": self.resolved_type,
+            "tts_provider": self.tts_provider,
+            "bridge_url": self.bridge_url,
             "fallback_chain": self.fallback_chain,
+            "constraints": self.constraints,
             "audio_format": self.audio_format,
             "require_opus": self.require_opus,
-            "status": self.status,
             "reason_codes": self.reason_codes,
+            "status": self.status,
         }
 
 
-# ---------------------------------------------------------------------------
-# Provider registry state
-# ---------------------------------------------------------------------------
-
 class ProviderRegistry:
-    """
-    Tracks TTS provider availability with a stateful circuit breaker.
-
-    States:
-    - CLOSED: Bridge is healthy, all requests go to bridge.
-    - OPEN: Bridge is failing, all requests go to native fallback.
-    - HALF_OPEN: Testing if bridge has recovered (1 request allowed).
-    """
+    """Strongly-registered provider selector with bridge-first priority."""
 
     def __init__(self, failure_threshold: int = 3, recovery_timeout_s: float = 60.0) -> None:
         self._bridge_url: str | None = None
-        self._native_allowed: bool = False
-        
-        # Circuit breaker state
+        self._bridge_registered = False
+        self._native_allowed = False
         self._failure_count = 0
         self._failure_threshold = failure_threshold
         self._recovery_timeout_s = recovery_timeout_s
-        self._last_failure_time: float = 0.0
-        self._is_open = False
+        self._last_failure_time = 0.0
+        self._circuit_state = "closed"
 
     def register_bridge(self, url: str, healthy: bool = True) -> None:
         self._bridge_url = url
+        self._bridge_registered = True
         if healthy:
-            self.report_success()
+            self.report_success("bridge")
         else:
-            self.report_failure()
+            self.report_failure("bridge", error_type="registration_unhealthy")
+
+    def clear_bridge(self) -> None:
+        self._bridge_url = None
+        self._bridge_registered = False
+        self._failure_count = 0
+        self._last_failure_time = 0.0
+        self._circuit_state = "closed"
 
     def set_native_allowed(self, allowed: bool) -> None:
         self._native_allowed = allowed
 
-    def report_success(self) -> None:
-        if self._is_open:
-            logger.info("Circuit breaker CLOSED (Bridge recovered)")
+    def report_success(self, provider: TTSProvider) -> None:
+        if provider != "bridge":
+            return
+        if self._circuit_state != "closed":
+            logger.info("bridge_circuit_closed", extra={"provider": provider, "bridge_url": self._bridge_url})
         self._failure_count = 0
-        self._is_open = False
+        self._circuit_state = "closed"
 
-    def report_failure(self) -> None:
+    def report_failure(self, provider: TTSProvider, *, error_type: str) -> None:
+        if provider != "bridge":
+            return
         self._failure_count += 1
         self._last_failure_time = time.monotonic()
-        if self._failure_count >= self._failure_threshold and not self._is_open:
-            self._is_open = True
-            logger.error(
-                "Circuit breaker OPENED (Bridge failing)",
-                extra={"failure_count": self._failure_count, "url": self._bridge_url}
-            )
+        if self._failure_count >= self._failure_threshold:
+            self._circuit_state = "open"
+        logger.error(
+            "bridge_provider_failure",
+            extra={
+                "provider": provider,
+                "bridge_url": self._bridge_url,
+                "error_type": error_type,
+                "failure_count": self._failure_count,
+                "circuit_state": self._circuit_state,
+            },
+        )
 
-    def select_provider(self) -> tuple[TTSProvider, str | None]:
-        """
-        Returns (provider, bridge_url).
-        Logic:
-        1. If CLOSED -> Bridge.
-        2. If OPEN:
-           - If recovery_timeout passed -> HALF_OPEN -> Bridge (one probe).
-           - Otherwise -> Native.
-        """
-        now = time.monotonic()
-        
-        # Check for recovery (Half-Open probe)
-        if self._is_open and (now - self._last_failure_time) > self._recovery_timeout_s:
-            logger.info("Circuit breaker HALF-OPEN (Probing bridge recovery)")
-            return "bridge", self._bridge_url
+    def snapshot(self) -> dict[str, Any]:
+        return {
+            "bridge_registered": self._bridge_registered,
+            "bridge_url": self._bridge_url,
+            "native_allowed": self._native_allowed,
+            "failure_count": self._failure_count,
+            "failure_threshold": self._failure_threshold,
+            "recovery_timeout_s": self._recovery_timeout_s,
+            "circuit_state": self._current_circuit_state(),
+        }
 
-        if not self._is_open and self._bridge_url:
-            return "bridge", self._bridge_url
+    def _current_circuit_state(self) -> str:
+        if self._circuit_state != "open":
+            return self._circuit_state
+        if (time.monotonic() - self._last_failure_time) > self._recovery_timeout_s:
+            return "half_open"
+        return "open"
+
+    def select_provider(self) -> tuple[TTSProvider, str | None, list[str]]:
+        reason_codes: list[str] = []
+        circuit_state = self._current_circuit_state()
+        if self._bridge_registered and self._bridge_url:
+            if circuit_state in {"closed", "half_open"}:
+                if circuit_state == "half_open":
+                    reason_codes.append("bridge_half_open_probe")
+                return "bridge", self._bridge_url, reason_codes
+            reason_codes.append("bridge_circuit_open")
+        else:
+            reason_codes.append("bridge_not_registered")
 
         if self._native_allowed:
-            return "native", None
-            
-        return "none", None
+            reason_codes.append("bridge_unhealthy_native_fallback")
+            return "native", None, reason_codes
+
+        reason_codes.append("no_tts_provider")
+        return "none", None, reason_codes
 
 
-# Singleton registry — initialized at app startup
 _provider_registry = ProviderRegistry()
 
 
 def get_provider_registry() -> ProviderRegistry:
     return _provider_registry
 
-
-# ---------------------------------------------------------------------------
-# Decision function
-# ---------------------------------------------------------------------------
 
 def decide_audio_delivery(
     *,
@@ -187,157 +182,139 @@ def decide_audio_delivery(
     sender_type: SenderType,
     text_length: int,
     audio_duration_s: float | None = None,
+    content_kind: Literal["speech", "music", "unknown"] = "speech",
     registry: ProviderRegistry | None = None,
 ) -> DeliveryPlan:
-    """
-    Single entry-point for all audio delivery decisions.
-
-    Raises DeliveryPlanError ONLY for hard blocks (e.g. USER audio on Feishu).
-    For soft failures (bridge down, unsupported type), returns a plan with
-    status="fallback_text" and the reason documented in reason_codes.
-
-    Args:
-        request_id: Unique ID for this request (for log correlation).
-        channel: "feishu" | "telegram" | "other".
-        sender_type: "bot" | "user".
-        text_length: Characters in the source text (used for TG voice vs audio).
-        audio_duration_s: Known duration if available (for Telegram routing).
-        registry: ProviderRegistry to use; defaults to global singleton.
-    """
     reg = registry or _provider_registry
-    caps = get_capabilities(channel)
+    normalized_channel = (channel or "other").lower()
+    caps = get_capabilities(normalized_channel)
     reason_codes: list[str] = []
 
-    # ── Step 1: Hard-block unsupported sender/channel combos ─────────────
     try:
-        assert_audio_allowed(channel, sender_type)
+        assert_audio_allowed(normalized_channel, sender_type)
     except ChannelCapabilityError as exc:
-        # This is a programming error on the caller's side — raise immediately
         logger.error(
-            "Audio delivery hard-blocked",
-            extra={"request_id": request_id, "channel": channel, "sender": sender_type, "reason": str(exc)},
+            "audio_delivery_hard_blocked",
+            extra={
+                "request_id": request_id,
+                "channel": normalized_channel,
+                "sender_type": sender_type,
+                "error_type": "channel_capability_error",
+                "reason": str(exc),
+            },
         )
         raise DeliveryPlanError(str(exc)) from exc
 
-    # ── Step 2: Select TTS provider ──────────────────────────────────────
-    provider, bridge_url = reg.select_provider()
+    provider, bridge_url, provider_reasons = reg.select_provider()
+    reason_codes.extend(provider_reasons)
     if provider == "none":
-        reason_codes.append("no_tts_provider")
         return DeliveryPlan(
             request_id=request_id,
-            channel=channel,
+            channel=normalized_channel,
             sender_type=sender_type,
-            tts_provider="none",
-            bridge_url=None,
             requested_type="voice_bubble",
             resolved_type="text",
+            tts_provider="none",
+            bridge_url=None,
             fallback_chain=["text"],
-            status="fallback_text",
+            constraints={"channel_notes": caps.notes},
+            audio_format=caps.preferred_format,
+            require_opus=caps.audio_must_be_opus,
             reason_codes=reason_codes,
+            status="fallback_text",
         )
 
-    if provider == "native":
-        reason_codes.append("bridge_unhealthy_native_fallback")
-
-    # ── Step 3: Resolve message type based on channel capabilities ────────
     requested_type: MessageType = "voice_bubble"
-    resolved_type: MessageType
+    resolved_type: MessageType = "voice_bubble"
     fallback_chain: list[MessageType]
 
-    if channel == "feishu":
-        # Feishu: always voice_bubble via file_key; no audio_file fallback
-        if caps.supports_voice_bubble:
-            resolved_type = "voice_bubble"
-            fallback_chain = ["voice_bubble", "text"]
-        else:
-            reason_codes.append("feishu_no_voice_bubble")
-            resolved_type = "text"
-            fallback_chain = ["text"]
-
-    elif channel == "telegram":
-        # Telegram: voice_bubble for short audio, audio_file for longer content
-        if audio_duration_s is not None and audio_duration_s > 300:
-            # > 5 min → use sendAudio
+    if normalized_channel == "feishu":
+        requested_type = "voice_bubble"
+        resolved_type = "voice_bubble"
+        fallback_chain = ["voice_bubble", "text"]
+        reason_codes.append("feishu_bot_audio_only")
+    elif normalized_channel == "telegram":
+        if content_kind == "music":
+            requested_type = "audio_file"
+            resolved_type = "audio_file"
+            reason_codes.append("tg_music_use_audio_file")
+        elif audio_duration_s is not None and audio_duration_s > 300:
             requested_type = "audio_file"
             resolved_type = "audio_file"
             reason_codes.append("tg_long_audio_use_audio_file")
         elif text_length > 800:
-            # Very long text → unlikely to be a voice bubble usecase
             requested_type = "audio_file"
             resolved_type = "audio_file"
             reason_codes.append("tg_long_text_use_audio_file")
         else:
+            requested_type = "voice_bubble"
             resolved_type = "voice_bubble"
+            reason_codes.append("tg_short_audio_use_voice_bubble")
         fallback_chain = ["voice_bubble", "audio_file", "document", "text"]
-
     else:
-        # Generic channel
-        if caps.supports_audio_file:
-            resolved_type = "audio_file"
-            fallback_chain = ["audio_file", "text"]
-        else:
-            resolved_type = "text"
-            fallback_chain = ["text"]
+        requested_type = "audio_file"
+        resolved_type = "audio_file" if caps.supports_audio_file else "text"
+        fallback_chain = ["audio_file", "text"] if resolved_type == "audio_file" else ["text"]
+        if resolved_type == "text":
             reason_codes.append("channel_no_audio_support")
 
-    # ── Step 4: Determine audio format ────────────────────────────────────
-    audio_format = caps.preferred_format
-    require_opus = caps.audio_must_be_opus
+    if resolved_type != "text":
+        assert_message_type_allowed(normalized_channel, resolved_type)
+
+    constraints = {
+        "supports_bot_audio": caps.supports_bot_audio,
+        "supports_user_audio": caps.supports_user_audio,
+        "supports_voice_bubble": caps.supports_voice_bubble,
+        "supports_audio_file": caps.supports_audio_file,
+        "supports_document": caps.supports_document,
+        "channel_notes": caps.notes,
+        "content_kind": content_kind,
+        "telegram_voice_max_duration_s": 300,
+        "telegram_voice_text_threshold": 800,
+    }
 
     plan = DeliveryPlan(
         request_id=request_id,
-        channel=channel,
+        channel=normalized_channel,
         sender_type=sender_type,
-        tts_provider=provider,
-        bridge_url=bridge_url,
         requested_type=requested_type,
         resolved_type=resolved_type,
+        tts_provider=provider,
+        bridge_url=bridge_url,
         fallback_chain=fallback_chain,
-        audio_format=audio_format,
-        require_opus=require_opus,
+        constraints=constraints,
+        audio_format=caps.preferred_format,
+        require_opus=caps.audio_must_be_opus,
         reason_codes=reason_codes,
         status="ok",
     )
-
-    logger.info("DeliveryPlan constructed", extra=plan.to_log_dict())
+    logger.info("delivery_plan_constructed", extra=plan.to_log_dict())
     return plan
 
 
-# ---------------------------------------------------------------------------
-# Execution helpers (called by OpenClaw after obtaining a plan)
-# ---------------------------------------------------------------------------
-
 def get_next_fallback(plan: DeliveryPlan, failed_type: MessageType) -> MessageType | None:
-    """
-    Returns the next message type to attempt after *failed_type* fails.
-    Returns None if the chain is exhausted (should result in silent log + give up).
-
-    Usage:
-        next_type = get_next_fallback(plan, "voice_bubble")
-        if next_type is None:
-            log_and_give_up()
-    """
     try:
         idx = plan.fallback_chain.index(failed_type)
         next_type = plan.fallback_chain[idx + 1]
         logger.warning(
-            "Audio delivery fallback triggered",
+            "audio_delivery_fallback_triggered",
             extra={
                 "request_id": plan.request_id,
+                "channel": plan.channel,
                 "failed_type": failed_type,
                 "next_type": next_type,
-                "channel": plan.channel,
+                "fallback_chain": plan.fallback_chain,
             },
         )
         return next_type
     except (ValueError, IndexError):
         logger.error(
-            "Fallback chain exhausted — no more delivery options",
+            "audio_delivery_fallback_exhausted",
             extra={
                 "request_id": plan.request_id,
-                "failed_type": failed_type,
                 "channel": plan.channel,
-                "chain": plan.fallback_chain,
+                "failed_type": failed_type,
+                "fallback_chain": plan.fallback_chain,
             },
         )
         return None

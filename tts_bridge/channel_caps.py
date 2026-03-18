@@ -1,10 +1,9 @@
 """
 channel_caps.py — Explicit channel capability matrix.
 
-This module implements the strict contract for what each channel
-can and cannot do. All delivery logic MUST consult this before
-attempting to send audio. Fail-fast semantics: unsupported
-operations raise ChannelCapabilityError immediately.
+This module is the hard contract for audio delivery. Every audio request
+MUST validate channel + sender capabilities here before synthesis starts.
+No downstream caller is allowed to assume BOT/USER interchangeability.
 """
 
 from __future__ import annotations
@@ -26,42 +25,54 @@ class ChannelCapabilities:
     # Which sender can send audio at all
     bot_can_send_audio: bool
     user_can_send_audio: bool
-    # Supported message types (for BOT sender)
-    supports_voice_bubble: bool   # native inline waveform (Feishu audio / TG sendVoice)
-    supports_audio_file: bool     # generic downloadable audio
-    supports_document: bool       # arbitrary file attachment
+    # Supported message types
+    supports_voice_bubble: bool
+    supports_audio_file: bool
+    supports_document: bool
     # Constraints
-    audio_must_be_opus: bool      # Feishu and TG voice bubbles require Opus
-    preferred_format: str         # "ogg" | "mp3" | "wav"
+    audio_must_be_opus: bool
+    preferred_format: str
     notes: str = ""
 
+    @property
+    def supports_bot_audio(self) -> bool:
+        return self.bot_can_send_audio
 
-# ---------------------------------------------------------------------------
-# Capability registry — the single source of truth
-# ---------------------------------------------------------------------------
+    @property
+    def supports_user_audio(self) -> bool:
+        return self.user_can_send_audio
+
+    def supports_message_type(self, message_type: MessageType) -> bool:
+        return {
+            "voice_bubble": self.supports_voice_bubble,
+            "audio_file": self.supports_audio_file,
+            "document": self.supports_document,
+            "text": True,
+        }[message_type]
+
 
 _REGISTRY: dict[str, ChannelCapabilities] = {
     "feishu": ChannelCapabilities(
         channel="feishu",
         bot_can_send_audio=True,
-        user_can_send_audio=False,   # USER cannot send audio — HARD BLOCK
-        supports_voice_bubble=True,  # msg_type="audio" with file_key
-        supports_audio_file=False,   # Do NOT fall back to generic file on Feishu
-        supports_document=True,
+        user_can_send_audio=False,
+        supports_voice_bubble=True,
+        supports_audio_file=False,
+        supports_document=False,
         audio_must_be_opus=True,
         preferred_format="ogg",
-        notes="Feishu audio requires Opus upload via im/v1/files; USER sender NEVER allowed.",
+        notes="Feishu audio requires BOT sender plus uploaded Opus file_key envelope.",
     ),
     "telegram": ChannelCapabilities(
         channel="telegram",
         bot_can_send_audio=True,
-        user_can_send_audio=True,   # Userbot mode supported but not recommended
-        supports_voice_bubble=True,  # sendVoice (OGG/Opus, short clips)
-        supports_audio_file=True,    # sendAudio (longer / music)
+        user_can_send_audio=True,
+        supports_voice_bubble=True,
+        supports_audio_file=True,
         supports_document=True,
-        audio_must_be_opus=True,     # sendVoice requires OGG/Opus
+        audio_must_be_opus=True,
         preferred_format="ogg",
-        notes="sendVoice for short clips < 5 min; sendAudio for others.",
+        notes="Telegram voice uses sendVoice; long-form audio should use sendAudio.",
     ),
     "other": ChannelCapabilities(
         channel="other",
@@ -72,30 +83,30 @@ _REGISTRY: dict[str, ChannelCapabilities] = {
         supports_document=True,
         audio_must_be_opus=False,
         preferred_format="wav",
-        notes="Generic channel; no voice-bubble support.",
+        notes="Generic channel with file-only audio transport.",
     ),
 }
-
 _DEFAULT_CAPS = _REGISTRY["other"]
 
 
 def get_capabilities(channel: str) -> ChannelCapabilities:
-    """Return capabilities for the given channel. Falls back to 'other'."""
-    return _REGISTRY.get(channel.lower(), _DEFAULT_CAPS)
+    return _REGISTRY.get((channel or "other").lower(), _DEFAULT_CAPS)
 
 
 def assert_audio_allowed(channel: str, sender: SenderType) -> None:
-    """Raise ChannelCapabilityError if sender cannot send audio on this channel.
-
-    This is a HARD BLOCK — must be called before any synthesis attempt.
-    """
     caps = get_capabilities(channel)
     if sender == "bot" and not caps.bot_can_send_audio:
-        raise ChannelCapabilityError(
-            f"BOT cannot send audio on channel '{channel}'"
-        )
+        raise ChannelCapabilityError(f"BOT cannot send audio on channel '{channel}'")
     if sender == "user" and not caps.user_can_send_audio:
         raise ChannelCapabilityError(
             f"USER sender is FORBIDDEN from sending audio on channel '{channel}'. "
             f"Audio MUST be sent via BOT. {caps.notes}"
+        )
+
+
+def assert_message_type_allowed(channel: str, message_type: MessageType) -> None:
+    caps = get_capabilities(channel)
+    if not caps.supports_message_type(message_type):
+        raise ChannelCapabilityError(
+            f"Message type '{message_type}' is unsupported on channel '{channel}'. {caps.notes}"
         )
