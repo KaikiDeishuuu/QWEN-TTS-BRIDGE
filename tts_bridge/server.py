@@ -3,6 +3,8 @@ import asyncio
 import logging
 import time
 import uuid
+import threading
+from collections import deque
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, status
@@ -108,6 +110,23 @@ def _telegram_transport_for(plan: DeliveryPlan, duration_s: float | None, media_
 _SETTINGS: Settings
 _SEMAPHORE: asyncio.Semaphore
 
+# Replay buffer for deterministic diagnostics
+_REPLAY_LOCK = threading.RLock()
+_REPLAY_ORDER: deque[str] = deque(maxlen=500)
+_REPLAY_STORE: dict[str, dict[str, object]] = {}
+
+
+def _record_replay(request_id: str, **fields: object) -> None:
+    with _REPLAY_LOCK:
+        if request_id not in _REPLAY_STORE:
+            if len(_REPLAY_ORDER) >= _REPLAY_ORDER.maxlen:
+                oldest = _REPLAY_ORDER.popleft()
+                _REPLAY_STORE.pop(oldest, None)
+            _REPLAY_ORDER.append(request_id)
+            _REPLAY_STORE[request_id] = {}
+        _REPLAY_STORE[request_id].update(fields)
+        _REPLAY_STORE[request_id]["updated_at"] = time.time()
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -139,6 +158,26 @@ async def health() -> dict[str, object]:
     return {"status": "ok", "provider_registry": get_provider_registry().snapshot()}
 
 
+@app.get("/replay/{request_id}")
+async def replay(request_id: str) -> Response:
+    with _REPLAY_LOCK:
+        payload = _REPLAY_STORE.get(request_id)
+    if not payload:
+        return Response(
+            content=json.dumps({"error": "request_id_not_found", "request_id": request_id}),
+            media_type="application/json",
+            headers={"X-Request-Id": request_id, "X-Reason-Code": "request_id_not_found"},
+            status_code=404,
+        )
+    body = {"request_id": request_id, **payload}
+    return Response(
+        content=json.dumps(body),
+        media_type="application/json",
+        headers={"X-Request-Id": request_id},
+        status_code=200,
+    )
+
+
 @app.post("/tts")
 async def tts(
     body: TTSRequest,
@@ -147,26 +186,43 @@ async def tts(
     request_id = str(uuid.uuid4())
     t_start = time.monotonic()
     validate_bearer_token(authorization, _SETTINGS.internal_tts_token)
-    _log_delivery_state("request_received", request_id, channel=body.channel or "other", sender_type=body.sender_type.lower())
+    normalized_channel = (body.channel or "other").lower()
+    normalized_sender = (body.sender_type or "bot").lower()
+    _log_delivery_state("request_received", request_id, channel=normalized_channel, sender_type=normalized_sender)
+    _record_replay(
+        request_id,
+        normalized_input={
+            "channel": normalized_channel,
+            "sender_type": normalized_sender,
+            "text_length": len(body.text),
+            "format": body.format,
+            "tts_engine": body.tts_engine,
+            "voice_profile": body.voice_profile,
+        },
+        terminal_status="in_progress",
+    )
 
     try:
-        sender_type = body.sender_type.lower() if body.sender_type else "bot"
         plan = decide_audio_delivery(
             request_id=request_id,
-            channel=body.channel or "other",
-            sender_type=sender_type,  # type: ignore[arg-type]
+            channel=normalized_channel,
+            sender_type=normalized_sender,  # type: ignore[arg-type]
             text_length=len(body.text),
         )
         _log_delivery_state("policy_resolved", request_id, plan=plan.to_log_dict())
+        _record_replay(request_id, plan=plan.to_log_dict())
     except DeliveryPlanError as exc:
         logger.error("delivery_planning_rejected", extra={"request_id": request_id, "error_type": type(exc).__name__, "reason": str(exc)})
+        _record_replay(request_id, terminal_status="fallback_text", reason_code="capability_blocked")
         return _fallback_response("capability_blocked", request_id, status_code=status.HTTP_409_CONFLICT)
     except Exception as exc:
         logger.exception("delivery_planning_failed", extra={"request_id": request_id, "error_type": type(exc).__name__})
+        _record_replay(request_id, terminal_status="fallback_text", reason_code="planning_failed")
         return _fallback_response("planning_failed", request_id)
 
     if plan.status == "fallback_text":
         _log_delivery_state("fallback", request_id, reason=plan.reason_codes[0], fallback_chain=plan.fallback_chain)
+        _record_replay(request_id, terminal_status="fallback_text", reason_code=plan.reason_codes[0])
         return _fallback_response(plan.reason_codes[0], request_id, plan=plan)
 
     voice_info = resolve_session_voice(session_id=plan.channel, text=body.text, tts_engine=body.tts_engine)
@@ -205,6 +261,7 @@ async def tts(
 
             if len(pcm_audio) < _SETTINGS.min_pcm_bytes:
                 logger.error("invalid_pcm_audio", extra={"request_id": request_id, "pcm_bytes": len(pcm_audio)})
+                _record_replay(request_id, terminal_status="fallback_text", reason_code="invalid_audio")
                 return _fallback_response("invalid_audio", request_id, plan=plan)
 
             encoded_audio = await pcm_to_encoded(
@@ -221,6 +278,7 @@ async def tts(
                     "invalid_encoded_audio",
                     extra={"request_id": request_id, "audio_bytes": len(encoded_audio), "media_type": media_type, "reason_code": audio_reason},
                 )
+                _record_replay(request_id, terminal_status="fallback_text", reason_code="invalid_audio")
                 return _fallback_response("invalid_audio", request_id, plan=plan)
 
             latency_ms = int((time.monotonic() - t_start) * 1000)
@@ -236,12 +294,14 @@ async def tts(
             if plan.channel == "feishu" and plan.resolved_type == "voice_bubble":
                 if not _SETTINGS.feishu_app_id or not _SETTINGS.feishu_app_secret:
                     logger.error("feishu_credentials_missing", extra={"request_id": request_id})
+                    _record_replay(request_id, terminal_status="fallback_text", reason_code="feishu_credentials_missing")
                     return _fallback_response("feishu_credentials_missing", request_id, plan=plan)
                 try:
                     opus_path = convert_to_feishu_opus(encoded_audio, plan.audio_format)
                     fs_client = FeishuClient(_SETTINGS.feishu_app_id, _SETTINGS.feishu_app_secret, upload_timeout=_SETTINGS.feishu_upload_timeout)
                     file_key = await fs_client.upload_audio(str(opus_path))
                     _log_delivery_state("delivery_result", request_id, upstream_status="ok", file_key_prefix=file_key[:6])
+                    _record_replay(request_id, terminal_status="success", reason_code="ok", transport_api="im/v1/files+im/v1/messages")
                     return Response(
                         content=f'{{"msg_type": "audio", "content": {{"file_key": "{file_key}"}}}}',
                         media_type="application/json",
@@ -257,12 +317,19 @@ async def tts(
                     logger.exception("feishu_delivery_failed", extra={"request_id": request_id, "error_type": type(exc).__name__})
                     next_fallback = get_next_fallback(plan, plan.resolved_type)
                     if next_fallback == "text":
+                        _record_replay(request_id, terminal_status="fallback_text", reason_code="feishu_upload_failed")
                         return _fallback_response("feishu_upload_failed", request_id, plan=plan)
                     raise
 
             telegram_send_plan = _telegram_transport_for(plan, duration_s, media_type)
             log_tts_event(request_id, plan.channel, {**plan.to_log_dict(), "transport": telegram_send_plan}, len(encoded_audio), latency_ms)
             _log_delivery_state("delivery_result", request_id, upstream_status="ok", transport=telegram_send_plan)
+            _record_replay(
+                request_id,
+                terminal_status="success",
+                reason_code="ok",
+                transport_api=str(telegram_send_plan.get("transport_api", "")),
+            )
             return Response(
                 content=encoded_audio,
                 media_type=media_type,
@@ -278,7 +345,9 @@ async def tts(
 
     except NotImplementedError as exc:
         logger.exception("tts_provider_not_implemented", extra={"request_id": request_id, "error_type": type(exc).__name__})
+        _record_replay(request_id, terminal_status="fallback_text", reason_code=str(exc))
         return _fallback_response(str(exc), request_id, plan=plan)
     except Exception as exc:
         logger.exception("final_delivery_failed", extra={"request_id": request_id, "error_type": type(exc).__name__})
+        _record_replay(request_id, terminal_status="fallback_text", reason_code="delivery_failed")
         return _fallback_response("delivery_failed", request_id, plan=plan)
