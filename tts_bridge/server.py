@@ -49,15 +49,17 @@ def _fallback_response(reason: str, request_id: str, *, plan: DeliveryPlan | Non
     payload = {
         "fallback_to_text": True,
         "reason": reason,
+        "reason_code": reason,
         "request_id": request_id,
     }
     if plan is not None:
         payload["resolved_type"] = plan.resolved_type
-        payload["fallback_chain"] = plan.fallback_chain
+        payload["fallback_chain"] = list(plan.fallback_chain)
+        payload["plan_reason_codes"] = list(plan.reason_codes)
     return Response(
         content=json.dumps(payload),
         media_type="application/json",
-        headers={"X-Request-Id": request_id},
+        headers={"X-Request-Id": request_id, "X-Reason-Code": reason},
         status_code=status_code,
     )
 
