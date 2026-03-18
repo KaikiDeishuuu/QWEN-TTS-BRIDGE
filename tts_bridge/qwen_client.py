@@ -51,6 +51,20 @@ class QwenRealtimeTTSClient:
             self._ws = None
 
     async def synthesize(self, text: str, voice_prompt: str | None = None) -> bytes:
+        """Synthesize text to PCM audio, with one automatic retry on connection failure."""
+        try:
+            return await self._do_synthesize(text, voice_prompt)
+        except (websockets.exceptions.ConnectionClosedError, websockets.exceptions.ConnectionClosedOK) as e:
+            logger.warning(
+                "Qwen websocket dropped, reconnecting and retrying once",
+                extra={"error": str(e)},
+            )
+            # Reconnect and retry once
+            await self.close()
+            await self.connect()
+            return await self._do_synthesize(text, voice_prompt)
+
+    async def _do_synthesize(self, text: str, voice_prompt: str | None = None) -> bytes:
         if self._ws is None:
             raise RuntimeError("WebSocket is not connected")
 
