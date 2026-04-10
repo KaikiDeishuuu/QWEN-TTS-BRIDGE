@@ -10,6 +10,23 @@ This service is designed to be called by OpenClaw/bot backends:
 2. Bridge synthesizes PCM audio through DashScope Qwen realtime websocket.
 3. Bridge validates and converts audio (`wav`/`mp3`/`ogg`) and returns binary audio, or a structured fallback JSON payload when degradation is required.
 
+## Deployment Modes (Important)
+
+This repository currently supports **two deployment modes**:
+
+1. **Systemd + local virtualenv (`venv_bridge`)**
+   - This is the **current production mode on Haowei's host**.
+   - Bind: `127.0.0.1:5200`
+   - Managed by: `systemctl status tts-bridge`
+   - OpenClaw on this host currently talks to the bridge through this loopback endpoint.
+
+2. **Docker / docker-compose**
+   - Added for portable deployment and future migration scenarios.
+   - Default examples in this repo expose port `8000` unless overridden.
+
+> Important: the Docker path is **not** the active production path on this machine right now.
+> Do not switch deployment modes casually without also checking OpenClaw integration, env loading, and port alignment.
+
 ## Quick Start (Docker Compose)
 
 ```bash
@@ -112,11 +129,37 @@ curl -X POST http://127.0.0.1:8000/tts \
 - **DashScope/Qwen realtime provider** for synthesis
 - **ffmpeg** used for encoding/conversion
 
+## Current Production Note
+
+On the current host, the live bridge is still started by **systemd** with local virtualenv and loopback bind:
+
+```ini
+WorkingDirectory=/root/.openclaw/workspace/Graces_Tools/QWEN-TTS-BRIDGE
+EnvironmentFile=/root/.openclaw/workspace/Graces_Tools/QWEN-TTS-BRIDGE/.env
+ExecStart=/root/.openclaw/workspace/Graces_Tools/QWEN-TTS-BRIDGE/venv_bridge/bin/uvicorn tts_bridge.server:app --host 127.0.0.1 --port 5200
+```
+
+If you follow Docker instructions later, make sure to explicitly reconcile:
+- service port (`5200` vs repo Docker default `8000`)
+- environment loading
+- OpenClaw caller configuration
+- health-check endpoint and restart policy
+
 ## Local Operations
+
+### Docker path
 
 ```bash
 docker compose logs -f
 docker compose ps
+```
+
+### Current host production path
+
+```bash
+systemctl status tts-bridge
+journalctl -u tts-bridge -n 100 --no-pager
+curl http://127.0.0.1:5200/health
 ```
 
 For deployment and troubleshooting details, see `DEPLOY.md`.
