@@ -156,6 +156,29 @@ For **this machine**, the best near-term plan is:
 
 ---
 
+## Safe config inspection (without leaking secrets)
+
+Avoid using plain:
+
+```bash
+docker compose config
+```
+
+because it expands `.env` values into terminal output.
+
+Use a redacted inspection instead:
+
+```bash
+docker compose config | sed -E 's/(DASHSCOPE_API_KEY: ).*/\1[REDACTED]/; s/(INTERNAL_TTS_TOKEN: ).*/\1[REDACTED]/; s/(FEISHU_APP_ID: ).*/\1[REDACTED]/; s/(FEISHU_APP_SECRET: ).*/\1[REDACTED]/'
+```
+
+If you only need ports and service shape, prefer:
+
+```bash
+docker compose config --services
+docker compose config | grep -E 'published:|target:|container_name:|image:|build:'
+```
+
 ## After migration, re-check these exact items
 
 ```bash
