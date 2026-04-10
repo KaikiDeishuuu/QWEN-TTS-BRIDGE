@@ -23,9 +23,10 @@ class QwenSynthesisConfig:
 
 
 class QwenRealtimeTTSClient:
-    def __init__(self, config: QwenSynthesisConfig, timeout_seconds: float = 45.0):
+    def __init__(self, config: QwenSynthesisConfig, timeout_seconds: float = 45.0, handshake_retries: int = 2):
         self._config = config
         self._timeout_seconds = timeout_seconds
+        self._handshake_retries = max(1, handshake_retries)
         self._ws: ClientConnection | None = None
 
     async def __aenter__(self) -> "QwenRealtimeTTSClient":
@@ -38,11 +39,26 @@ class QwenRealtimeTTSClient:
     async def connect(self) -> None:
         url = f"{self._config.ws_base}?model={self._config.model}"
         headers = {"Authorization": f"Bearer {self._config.api_key}"}
-        logger.info("Connecting to Qwen realtime websocket", extra={"url": url, "model": self._config.model})
-        self._ws = await asyncio.wait_for(
-            websockets.connect(url, additional_headers=headers),
-            timeout=self._timeout_seconds,
-        )
+        last_exc: Exception | None = None
+        for attempt in range(1, self._handshake_retries + 1):
+            try:
+                logger.info(
+                    "Connecting to Qwen realtime websocket",
+                    extra={"url": url, "model": self._config.model, "attempt": attempt, "max_attempts": self._handshake_retries},
+                )
+                self._ws = await asyncio.wait_for(
+                    websockets.connect(url, additional_headers=headers),
+                    timeout=self._timeout_seconds,
+                )
+                return
+            except TimeoutError as exc:
+                last_exc = exc
+                logger.warning(
+                    "Qwen websocket handshake timed out",
+                    extra={"attempt": attempt, "max_attempts": self._handshake_retries},
+                )
+                await asyncio.sleep(min(1.5 * attempt, 3.0))
+        raise last_exc or TimeoutError("timed out during handshake")
 
     async def close(self) -> None:
         if self._ws is not None:

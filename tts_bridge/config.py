@@ -14,6 +14,8 @@ class Settings:
     internal_tts_token: str = ""
     qwen_ws_base: str = "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"
     ws_timeout_seconds: float = 45.0
+    ws_handshake_retries: int = 2
+    long_text_split_threshold: int = 220
     feishu_app_id: str = ""
     feishu_app_secret: str = ""
     max_concurrent_requests: int = 8
@@ -67,6 +69,8 @@ def load_settings() -> Settings:
         tts_voice=os.getenv("TTS_VOICE", "Maia"),
         qwen_ws_base=os.getenv("QWEN_WS_BASE", "wss://dashscope.aliyuncs.com/api-ws/v1/realtime"),
         ws_timeout_seconds=_float_env("WS_TIMEOUT_SECONDS", "45"),
+        ws_handshake_retries=_int_env("WS_HANDSHAKE_RETRIES", "2"),
+        long_text_split_threshold=_int_env("LONG_TEXT_SPLIT_THRESHOLD", "220"),
         feishu_app_id=(os.getenv("FEISHU_APP_ID") or "").strip(),
         feishu_app_secret=(os.getenv("FEISHU_APP_SECRET") or "").strip(),
         max_concurrent_requests=_int_env("MAX_CONCURRENT_REQUESTS", "8"),

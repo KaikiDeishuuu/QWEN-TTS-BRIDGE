@@ -84,18 +84,66 @@ def _log_delivery_state(step: str, request_id: str, **fields: object) -> None:
     logger.info("tts_delivery_state", extra={"step": step, "request_id": request_id, **fields})
 
 
+def _split_long_text(text: str, threshold: int) -> list[str]:
+    if len(text) <= threshold:
+        return [text]
+    chunks: list[str] = []
+    current = ""
+    sentences = [s for s in __import__('re').split(r'(?<=[。！？!?；;])\s*', text) if s]
+    for sentence in sentences:
+        if not current:
+            current = sentence
+            continue
+        if len(current) + len(sentence) <= threshold:
+            current += sentence
+        else:
+            chunks.append(current)
+            current = sentence
+    if current:
+        chunks.append(current)
+    return chunks or [text]
+
+
 async def _synthesize_with_plan(plan: DeliveryPlan, cfg: QwenSynthesisConfig, text: str, voice_prompt: str | None) -> bytes:
     registry = get_provider_registry()
     _log_delivery_state("provider_selected", plan.request_id, provider=plan.tts_provider, bridge_url=plan.bridge_url)
     try:
         if plan.tts_provider == "bridge":
-            async with QwenRealtimeTTSClient(cfg, timeout_seconds=_SETTINGS.ws_timeout_seconds) as client:
+            async with QwenRealtimeTTSClient(
+                cfg,
+                timeout_seconds=_SETTINGS.ws_timeout_seconds,
+                handshake_retries=_SETTINGS.ws_handshake_retries,
+            ) as client:
                 pcm_audio = await client.synthesize(text, voice_prompt)
             registry.report_success("bridge")
             return pcm_audio
         if plan.tts_provider == "native":
             raise NotImplementedError("native_provider_not_implemented")
         raise RuntimeError("no_tts_provider")
+    except TimeoutError as exc:
+        if plan.tts_provider == "bridge" and len(text) > _SETTINGS.long_text_split_threshold:
+            chunks = _split_long_text(text, _SETTINGS.long_text_split_threshold)
+            if len(chunks) > 1:
+                logger.warning(
+                    "bridge_timeout_retrying_with_split_chunks",
+                    extra={"request_id": plan.request_id, "chunks": len(chunks), "threshold": _SETTINGS.long_text_split_threshold},
+                )
+                combined: list[bytes] = []
+                for idx, chunk in enumerate(chunks, start=1):
+                    async with QwenRealtimeTTSClient(
+                        cfg,
+                        timeout_seconds=_SETTINGS.ws_timeout_seconds,
+                        handshake_retries=_SETTINGS.ws_handshake_retries,
+                    ) as client:
+                        part = await client.synthesize(chunk, voice_prompt)
+                    combined.append(part)
+                    _log_delivery_state("split_chunk_synthesized", plan.request_id, chunk_index=idx, chunk_total=len(chunks), pcm_bytes=len(part))
+                pcm_audio = b"".join(combined)
+                registry.report_success("bridge")
+                return pcm_audio
+        if plan.tts_provider == "bridge":
+            registry.report_failure("bridge", error_type=type(exc).__name__)
+        raise
     except Exception as exc:
         if plan.tts_provider == "bridge":
             registry.report_failure("bridge", error_type=type(exc).__name__)
