@@ -1,93 +1,122 @@
-# QWEN-TTS-BRIDGE (OpenClaw Edition)
+# QWEN-TTS-BRIDGE
 
-[English](#english) | [中文说明](#中文安装引导)
+Production-ready FastAPI bridge that turns text into speech through Qwen Realtime TTS (DashScope), with channel-aware delivery behavior and authenticated internal access.
 
----
+## Overview
 
-## English
+This service is designed to be called by OpenClaw/bot backends:
 
-### Overview
-This is a microservice designed to provide high-quality, real-time speech synthesis for **OpenClaw** using the **Qwen3 Realtime TTS** engine. It handles channel-specific audio encoding, dynamic voice personality selection, and native platform delivery (e.g., Feishu voice bubbles).
+1. Caller sends text to `POST /tts` with an internal bearer token.
+2. Bridge synthesizes PCM audio through DashScope Qwen realtime websocket.
+3. Bridge validates and converts audio (`wav`/`mp3`/`ogg`) and returns binary audio, or a structured fallback JSON payload when degradation is required.
 
-### Key Features
-- **Channel-Aware Routing**: Optimized formats for Telegram (OGG/Opus) and Feishu (Native Bubbles).
-- **Voice Personality**: Automatically selects voices (Companion, Playful, Professional) based on text intent.
-- **Opus Optimization**: Native conversion to 32kbps Opus for stable voice delivery.
-- **Robust Fallbacks**: Graceful degradation to text or standard audio if synthesis or upload fails.
-- **Security**: Secured via Bearer token authentication.
+## Quick Start (Docker Compose)
 
-### Requirements
-- **Python**: 3.10+
-- **System**: `ffmpeg` (Required for Opus conversion and voice bubbles).
+```bash
+cp .env.example .env
+# fill DASHSCOPE_API_KEY and INTERNAL_TTS_TOKEN
 
-### Installation
-1. **Clone and Install**:
-   ```bash
-   git clone https://github.com/KaikiDeishuuu/QWEN-TTS-BRIDGE.git
-   cd QWEN-TTS-BRIDGE
-   python3 -m venv venv_bridge
-   source venv_bridge/bin/activate
-   pip install -r tts_bridge/requirements.txt
-   ```
-2. **Configure Environment (`.env`)**:
-   ```bash
-   DASHSCOPE_API_KEY=your_key
-   INTERNAL_TTS_TOKEN=your_secure_token
-   # Optional for Feishu voice bubbles
-   FEISHU_APP_ID=your_id
-   FEISHU_APP_SECRET=your_secret
-   ```
-3. **Run**:
-   ```bash
-   uvicorn tts_bridge.server:app --host 127.0.0.1 --port 5200
-   ```
+docker compose up -d --build
+curl http://127.0.0.1:8000/health
+```
 
----
+### Verify env vars are visible inside container venv
 
-## 中文安装引导
+```bash
+docker compose exec tts-bridge /opt/venv/bin/python -c "import os; print(bool(os.getenv('DASHSCOPE_API_KEY')))"
+docker compose exec tts-bridge /opt/venv/bin/python -c "import os; print(bool(os.getenv('INTERNAL_TTS_TOKEN')))"
+```
 
-### 项目简介
-本项目是专为 **OpenClaw** 设计的 TTS 桥接服务，采用 **Qwen3 Realtime TTS** 引擎。它能将文本实时合成为语音，并针对不同平台（Telegram、飞书）进行特定的优化处理。
+## Environment Variables
 
-### 核心特性
-- **平台自适应路由**：自动为 Telegram 生成带有波形的 OGG 语音条，并支持飞书的原生语音气泡。
-- **智能音色匹配**：根据回答内容自动切换音色（温暖伴侣、活泼、专业）。
-- **原生 Opus 优化**：针对飞书和 TG 优化为 32kbps Opus 格式，确保在各类客户端上的播放稳定性。
-- **强健的回退机制**：如果语音合成或上传失败，会自动通过 JSON 告知 OpenClaw 回退到文本。
-- **安全性**：基于 Bearer Token 的 API 鉴权。
+### Required
 
-### 安装步骤
-1. **源码下载与环境配置**：
-   ```bash
-   git clone https://github.com/KaikiDeishuuu/QWEN-TTS-BRIDGE.git
-   cd QWEN-TTS-BRIDGE
-   python3 -m venv venv_bridge
-   source venv_bridge/bin/activate
-   pip install -r tts_bridge/requirements.txt
-   ```
-2. **系统依赖**：
-   确保您的服务器已安装 `ffmpeg`（用于语音转码）：
-   ```bash
-   sudo apt update && sudo apt install -y ffmpeg
-   ```
-3. **配置 `.env` 文件**：
-   在项目根目录下创建 `.env`，填入您的 API 密钥：
-   ```env
-   DASHSCOPE_API_KEY=您的阿里云API_KEY
-   INTERNAL_TTS_TOKEN=自定义的内部通信Token
-   # 若需启用飞书语音气泡需配置：
-   FEISHU_APP_ID=飞书应用ID
-   FEISHU_APP_SECRET=飞书应用密钥
-   ```
-4. **启动服务**：
-   ```bash
-   uvicorn tts_bridge.server:app --host 127.0.0.1 --port 5200
-   ```
+- `DASHSCOPE_API_KEY`: API key used to authenticate against DashScope/Qwen realtime TTS.
+- `INTERNAL_TTS_TOKEN`: shared bearer token required by `POST /tts`.
 
-### 部署建议
-推荐使用 `systemd` 管理服务（参考 `deploy/tts-bridge.service`），并确保服务绑定在 `127.0.0.1` 以保证内部安全。
+### Common runtime settings
 
----
+- `HOST` (default `0.0.0.0`): uvicorn bind host in container.
+- `PORT` (default `8000`): uvicorn bind port in container.
+- `TTS_MODEL` (default `qwen3-tts-instruct-flash-realtime`)
+- `TTS_VOICE` (default `Maia`)
+- `QWEN_WS_BASE` (default `wss://dashscope.aliyuncs.com/api-ws/v1/realtime`)
+- `WS_TIMEOUT_SECONDS` (default `45`)
+- `MAX_CONCURRENT_REQUESTS` (default `8`)
+- `MIN_PCM_BYTES` (default `4800`)
+- `FFMPEG_TIMEOUT` (default `30`)
+- `ENABLE_NATIVE_FALLBACK` (default `false`)
+- `FEISHU_APP_ID` / `FEISHU_APP_SECRET` / `FEISHU_UPLOAD_TIMEOUT` (optional Feishu flow)
 
-## License
-MIT License. See [LICENSE](LICENSE) for details.
+See `.env.example` for the canonical template.
+
+## API
+
+### `GET /health`
+
+Basic liveness and provider registry state.
+
+```bash
+curl http://127.0.0.1:8000/health
+```
+
+Example response:
+
+```json
+{"status":"ok","provider_registry":{}}
+```
+
+### `POST /tts`
+
+Authenticated TTS endpoint.
+
+Headers:
+
+- `Authorization: Bearer <INTERNAL_TTS_TOKEN>`
+- `Content-Type: application/json`
+
+Minimal request:
+
+```json
+{
+  "text": "Hello from Qwen TTS",
+  "format": "ogg"
+}
+```
+
+Extended request fields:
+
+- `text` (required)
+- `voice_prompt` (optional)
+- `format` (default `wav`)
+- `channel` (optional, e.g. `telegram` / `feishu`)
+- `sender_type` (default `bot`)
+- `voice_profile` (optional)
+- `tts_engine` (default `qwen`)
+
+Example:
+
+```bash
+curl -X POST http://127.0.0.1:8000/tts \
+  -H "Authorization: Bearer ${INTERNAL_TTS_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"text":"Hello world","format":"mp3"}' \
+  --output reply.mp3
+```
+
+## Architecture (brief)
+
+- **FastAPI + Uvicorn** application (`tts_bridge.server:app`)
+- **Docker Compose runtime** with `.env` injected into container environment
+- **Python venv in container** at `/opt/venv`
+- **DashScope/Qwen realtime provider** for synthesis
+- **ffmpeg** used for encoding/conversion
+
+## Local Operations
+
+```bash
+docker compose logs -f
+docker compose ps
+```
+
+For deployment and troubleshooting details, see `DEPLOY.md`.
